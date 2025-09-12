@@ -52,6 +52,7 @@ class Account(Base):
     acclib: Mapped[str] = mapped_column(String(255), nullable=False)
 
     client: Mapped["Client"] = relationship(back_populates="accounts")
+    entries: Mapped[list["Entry"]] = relationship(back_populates="account")
 
 class Journal(Base):
     __tablename__ = "journals"
@@ -71,12 +72,13 @@ class Entry(Base):
     date: Mapped[datetime.date] = mapped_column(Date, nullable=False, index=True)
     jnl: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     piece_ref: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    accnum: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False, index=True)
     lib: Mapped[str] = mapped_column(String(255), nullable=False)
     debit: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     credit: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
 
     exercice: Mapped["Exercice"] = relationship(back_populates="entries")
+    account: Mapped["Account"] = relationship(back_populates="entries")
 
 class HistoryEvent(Base):
     __tablename__ = "history_events"

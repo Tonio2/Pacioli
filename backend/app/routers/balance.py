@@ -9,22 +9,32 @@ router = APIRouter(prefix="/api/balance", tags=["balance"])
 
 @router.get("")
 def balance(client_id: int = Query(...), exercice_id: int = Query(...), db: Session = Depends(get_db)):
+    # Agrégats par account_id
     sub = (
-        select(Entry.accnum,
-               func.sum(Entry.debit).label("debit"),
-               func.sum(Entry.credit).label("credit"),
-               func.count().label("count"))
-        .where(Entry.client_id==client_id, Entry.exercice_id==exercice_id)
-        .group_by(Entry.accnum)
+        select(
+            Entry.account_id.label("account_id"),
+            func.sum(Entry.debit).label("debit"),
+            func.sum(Entry.credit).label("credit"),
+            func.count().label("count"),
+        )
+        .where(Entry.client_id == client_id, Entry.exercice_id == exercice_id)
+        .group_by(Entry.account_id)
         .subquery()
     )
+
     q = (
-        select(sub.c.accnum,
-               func.coalesce(Account.acclib, sub.c.accnum).label("acclib"),
-               sub.c.debit, sub.c.credit, (sub.c.debit - sub.c.credit).label("solde"), sub.c.count)
-        .join(Account, (Account.client_id==client_id) & (Account.accnum==sub.c.accnum), isouter=True)
-        .order_by(sub.c.accnum)
+        select(
+            Account.accnum.label("accnum"),
+            func.coalesce(Account.acclib, Account.accnum).label("acclib"),
+            sub.c.debit,
+            sub.c.credit,
+            (sub.c.debit - sub.c.credit).label("solde"),
+            sub.c.count,
+        )
+        .join(Account, Account.id == sub.c.account_id)
+        .order_by(Account.accnum)
     )
+
     rows = db.execute(q).all()
     out = [
         {
@@ -45,42 +55,36 @@ def export_balance_txt(
     exercice_id: int = Query(...),
     db: Session = Depends(get_db),
 ):
-    # Reprend exactement la même logique que la route JSON
     sub = (
         select(
-            Entry.accnum,
+            Entry.account_id.label("account_id"),
             func.sum(Entry.debit).label("debit"),
             func.sum(Entry.credit).label("credit"),
-            func.count().label("count"),
         )
         .where(Entry.client_id == client_id, Entry.exercice_id == exercice_id)
-        .group_by(Entry.accnum)
+        .group_by(Entry.account_id)
         .subquery()
     )
+
     q = (
         select(
-            sub.c.accnum,
-            func.coalesce(Account.acclib, sub.c.accnum).label("acclib"),
+            Account.accnum.label("accnum"),
+            func.coalesce(Account.acclib, Account.accnum).label("acclib"),
             sub.c.debit,
             sub.c.credit,
         )
-        .join(
-            Account,
-            (Account.client_id == client_id) & (Account.accnum == sub.c.accnum),
-            isouter=True,
-        )
-        .order_by(sub.c.accnum)
+        .join(Account, Account.id == sub.c.account_id)
+        .order_by(Account.accnum)
     )
+
     rows = db.execute(q).all()
 
     def _d(x) -> Decimal:
         return Decimal(x or 0)
 
-    # Option : format FR (virgule décimale) ; Excel FR gère très bien le TSV avec virgules
     def fmt(n: Decimal) -> str:
         return f"{n:.2f}".replace(".", ",")
 
-    # En-tête
     lines: list[str] = [
         "N° de compte\tIntitulé du compte\tCumul débit\tCumul crédit\tSolde débit\tSolde crédit"
     ]

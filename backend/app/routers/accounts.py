@@ -35,3 +35,31 @@ def delete_account(id: int, db: Session = Depends(get_db)):
         raise HTTPException(404)
     db.delete(a); db.commit()
     return {"ok": True}
+
+@router.get("/lookup")
+def lookup_account(client_id: int, accnum: str, db: Session = Depends(get_db)):
+    accnum = (accnum or "").strip()
+    if not accnum:
+        return {"exists": False}
+    acc = db.execute(
+        select(Account).where(Account.client_id == client_id, Account.accnum == accnum)
+    ).scalar_one_or_none()
+    if acc:
+        return {"exists": True, "account_id": acc.id, "acclib": acc.acclib}
+    return {"exists": False}
+
+@router.get("/suggest")
+def suggest_accounts(client_id: int, q: str = "", limit: int = 10, db: Session = Depends(get_db)):
+    q = (q or "").strip()
+    stmt = select(Account).where(Account.client_id == client_id)
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where((Account.accnum.ilike(like)) | (Account.acclib.ilike(like)))
+    stmt = stmt.limit(min(limit, 50))
+    items = db.execute(stmt).scalars().all()
+    return {
+        "items": [
+            {"account_id": a.id, "accnum": a.accnum, "acclib": a.acclib}
+            for a in items
+        ]
+    }

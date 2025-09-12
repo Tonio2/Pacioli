@@ -8,11 +8,12 @@ class EntryOut(BaseModel):
     date: datetime.date
     jnl: str
     piece_ref: str
-    accnum: str
+    account_id: int             # <— nouveau
+    accnum: str                 # exposé via join Account
+    acclib: str                 # <— nouveau (libellé du compte)
     lib: str
     debit: Decimal
     credit: Decimal
-
     class Config:
         from_attributes = True
 
@@ -25,6 +26,7 @@ class PieceChange(BaseModel):
     entry_id: Optional[int] = None
     date: Optional[datetime.date] = None
     accnum: Optional[str] = None
+    acclib: Optional[str] = None   # <— nouveau
     lib: Optional[str] = None
     debit: Optional[Decimal] = None
     credit: Optional[Decimal] = None
@@ -71,7 +73,6 @@ class ExerciceCreate(BaseModel):
         if self.date_end < self.date_start:
             raise ValueError("date_end < date_start")
         return self
-
 
 class ExerciceOut(BaseModel):
     id: int

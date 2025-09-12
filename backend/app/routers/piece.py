@@ -1,22 +1,42 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, delete
 from decimal import Decimal
-from datetime import date
 from ..database import get_db
-from ..models import Entry, Exercice, HistoryEvent
+from ..models import Entry, HistoryEvent, Account
 from ..schemas import PieceCommitRequest
 from ..validators import ensure_batch_balanced, ensure_dates_in_exercice
-from ..crud import list_unbalanced_pieces, get_exercice
+from ..crud import list_unbalanced_pieces, get_exercice, find_or_create_account
 
 router = APIRouter(prefix="/api", tags=["piece"])
 
 @router.get("/piece")
 def get_piece(client_id: int, exercice_id: int, journal: str, piece_ref: str, db: Session = Depends(get_db)):
-    q = select(Entry).where(Entry.client_id==client_id, Entry.exercice_id==exercice_id, Entry.jnl==journal, Entry.piece_ref==piece_ref).order_by(Entry.date.asc(), Entry.id.asc())
+    q = (
+        select(Entry)
+        .options(selectinload(Entry.account))
+        .where(
+            Entry.client_id == client_id,
+            Entry.exercice_id == exercice_id,
+            Entry.jnl == journal,
+            Entry.piece_ref == piece_ref,
+        )
+        .order_by(Entry.date.asc(), Entry.id.asc())
+    )
     rows = db.execute(q).scalars().all()
     return {"rows": [
-        {"id": r.id, "date": r.date.isoformat(), "jnl": r.jnl, "piece_ref": r.piece_ref, "accnum": r.accnum, "lib": r.lib, "debit": float(r.debit or 0), "credit": float(r.credit or 0)}
+        {
+            "id": r.id,
+            "date": r.date.isoformat(),
+            "jnl": r.jnl,
+            "piece_ref": r.piece_ref,
+            "account_id": r.account_id,
+            "accnum": r.account.accnum if r.account else "",
+            "acclib": r.account.acclib if r.account else "",
+            "lib": r.lib,
+            "debit": Decimal(r.debit or 0),
+            "credit": Decimal(r.credit or 0),
+        }
         for r in rows
     ]}
 
@@ -30,7 +50,6 @@ def commit_piece(req: PieceCommitRequest, db: Session = Depends(get_db)):
     to_mod = []
     to_del = []
 
-    # Précharger l'état actuel des lignes concernées (utile pour modify/delete)
     existing = {e.id: e for e in db.execute(
         select(Entry).where(
             Entry.client_id==req.client_id,
@@ -65,38 +84,48 @@ def commit_piece(req: PieceCommitRequest, db: Session = Depends(get_db)):
         else:
             raise HTTPException(400, "op inconnue")
 
-    # Validations bloquantes
     ensure_dates_in_exercice(
         [r for r in ([{"date": ch.date} for ch in to_add if ch.date] + [{"date": (ch.date or existing[ch.entry_id].date)} for ch in to_mod])],
         ex.date_start, ex.date_end
     )
     ensure_batch_balanced(delta_rows)
 
-    # Appliquer en transaction
     added = modified = deleted = 0
     try:
         # Adds
         for ch in to_add:
+            # Résoudre ou créer le compte. N'update JAMAIS acclib si existe déjà.
+            acc = db.execute(
+                select(Account).where(Account.client_id==req.client_id, Account.accnum==ch.accnum)
+            ).scalar_one_or_none()
+            if acc is None:
+                acc = find_or_create_account(db, req.client_id, ch.accnum, (ch.acclib or ch.accnum))
             e = Entry(
                 client_id=req.client_id,
                 exercice_id=req.exercice_id,
                 date=ch.date,
                 jnl=req.journal,
                 piece_ref=req.piece_ref,
-                accnum=ch.accnum,
+                account_id=acc.id,
                 lib=ch.lib,
                 debit=Decimal(ch.debit or 0),
                 credit=Decimal(ch.credit or 0),
             )
             db.add(e)
             added += 1
+
         # Mods
         for ch in to_mod:
             e = existing[ch.entry_id]
             if ch.date is not None:
                 e.date = ch.date
             if ch.accnum is not None:
-                e.accnum = ch.accnum
+                acc = db.execute(
+                    select(Account).where(Account.client_id==req.client_id, Account.accnum==ch.accnum)
+                ).scalar_one_or_none()
+                if acc is None:
+                    acc = find_or_create_account(db, req.client_id, ch.accnum, (getattr(ch, "acclib", None) or ch.accnum))
+                e.account_id = acc.id
             if ch.lib is not None:
                 e.lib = ch.lib
             if ch.debit is not None:
@@ -104,21 +133,21 @@ def commit_piece(req: PieceCommitRequest, db: Session = Depends(get_db)):
             if ch.credit is not None:
                 e.credit = Decimal(ch.credit)
             modified += 1
+
         # Dels
         for ch in to_del:
             e = existing[ch.entry_id]
             db.delete(e)
             deleted += 1
+
         db.flush()
 
-        # Historisation minimale
         he = HistoryEvent(client_id=req.client_id, exercice_id=req.exercice_id, description=req.description or "", counts_json=f"{{\"added\":{added},\"modified\":{modified},\"deleted\":{deleted}}}")
         db.add(he)
         db.commit()
-    except Exception as e:
+    except Exception:
         db.rollback()
         raise
 
-    # Warnings non bloquants (pièces déséquilibrées sur l'exercice)
     warnings = {"unbalanced_pieces": list_unbalanced_pieces(db, req.exercice_id, limit=50)}
     return {"added": added, "modified": modified, "deleted": deleted, "warnings": warnings}
