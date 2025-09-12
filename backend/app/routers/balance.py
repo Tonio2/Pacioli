@@ -2,13 +2,15 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
+
+from ..schemas import BalanceResponse
 from ..database import get_db
 from ..models import Entry, Account
 
 router = APIRouter(prefix="/api/balance", tags=["balance"])
 
-@router.get("")
-def balance(client_id: int = Query(...), exercice_id: int = Query(...), db: Session = Depends(get_db)):
+@router.get("", response_model=BalanceResponse)
+def balance(exercice_id: int = Query(...), db: Session = Depends(get_db)):
     # Agrégats par account_id
     sub = (
         select(
@@ -17,7 +19,7 @@ def balance(client_id: int = Query(...), exercice_id: int = Query(...), db: Sess
             func.sum(Entry.credit).label("credit"),
             func.count().label("count"),
         )
-        .where(Entry.client_id == client_id, Entry.exercice_id == exercice_id)
+        .where(Entry.exercice_id == exercice_id)
         .group_by(Entry.account_id)
         .subquery()
     )
@@ -40,9 +42,9 @@ def balance(client_id: int = Query(...), exercice_id: int = Query(...), db: Sess
         {
             "accnum": r.accnum,
             "acclib": r.acclib,
-            "debit": float(r.debit or 0),
-            "credit": float(r.credit or 0),
-            "solde": float((r.debit or 0) - (r.credit or 0)),
+            "debit": r.debit or Decimal(0),
+            "credit": r.credit or Decimal(0),
+            "solde": r.solde or Decimal(0),
             "count": r.count,
         }
         for r in rows
@@ -51,7 +53,6 @@ def balance(client_id: int = Query(...), exercice_id: int = Query(...), db: Sess
 
 @router.get("/export")
 def export_balance_txt(
-    client_id: int = Query(...),
     exercice_id: int = Query(...),
     db: Session = Depends(get_db),
 ):
@@ -61,7 +62,7 @@ def export_balance_txt(
             func.sum(Entry.debit).label("debit"),
             func.sum(Entry.credit).label("credit"),
         )
-        .where(Entry.client_id == client_id, Entry.exercice_id == exercice_id)
+        .where(Entry.exercice_id == exercice_id)
         .group_by(Entry.account_id)
         .subquery()
     )
@@ -106,6 +107,6 @@ def export_balance_txt(
     content = "\n".join(lines) + ("\n" if lines else "")
     headers = {
         "Content-Type": "text/plain; charset=utf-8",
-        "Content-Disposition": f'attachment; filename="balance_{client_id}_{exercice_id}.txt"',
+        "Content-Disposition": f'attachment; filename="balance.csv"',
     }
     return Response(content=content, media_type="text/plain", headers=headers)

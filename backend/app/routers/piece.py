@@ -4,19 +4,18 @@ from sqlalchemy import select, delete
 from decimal import Decimal
 from ..database import get_db
 from ..models import Entry, HistoryEvent, Account
-from ..schemas import PieceCommitRequest
+from ..schemas import PieceCommitRequest, PieceCommitResponse, PieceGetResponse
 from ..validators import ensure_batch_balanced, ensure_dates_in_exercice
 from ..crud import list_unbalanced_pieces, get_exercice, find_or_create_account
 
 router = APIRouter(prefix="/api", tags=["piece"])
 
-@router.get("/piece")
-def get_piece(client_id: int, exercice_id: int, journal: str, piece_ref: str, db: Session = Depends(get_db)):
+@router.get("/piece", response_model=PieceGetResponse)
+def get_piece(exercice_id: int, journal: str, piece_ref: str, db: Session = Depends(get_db)):
     q = (
         select(Entry)
         .options(selectinload(Entry.account))
         .where(
-            Entry.client_id == client_id,
             Entry.exercice_id == exercice_id,
             Entry.jnl == journal,
             Entry.piece_ref == piece_ref,
@@ -27,22 +26,23 @@ def get_piece(client_id: int, exercice_id: int, journal: str, piece_ref: str, db
     return {"rows": [
         {
             "id": r.id,
-            "date": r.date.isoformat(),
+            "date": r.date,
             "jnl": r.jnl,
             "piece_ref": r.piece_ref,
             "account_id": r.account_id,
             "accnum": r.account.accnum if r.account else "",
             "acclib": r.account.acclib if r.account else "",
             "lib": r.lib,
-            "debit": Decimal(r.debit or 0),
-            "credit": Decimal(r.credit or 0),
+            "debit": r.debit or Decimal(0),
+            "credit": r.credit or Decimal(0),
         }
         for r in rows
     ]}
 
-@router.post("/piece/commit")
+@router.post("/piece/commit", response_model=PieceCommitResponse)
 def commit_piece(req: PieceCommitRequest, db: Session = Depends(get_db)):
     ex = get_exercice(db, req.exercice_id)
+    client_id = ex.client_id
 
     # Construire le lot (delta) pour validation
     delta_rows = []
@@ -52,7 +52,6 @@ def commit_piece(req: PieceCommitRequest, db: Session = Depends(get_db)):
 
     existing = {e.id: e for e in db.execute(
         select(Entry).where(
-            Entry.client_id==req.client_id,
             Entry.exercice_id==req.exercice_id,
             Entry.jnl==req.journal,
             Entry.piece_ref==req.piece_ref,
@@ -96,12 +95,11 @@ def commit_piece(req: PieceCommitRequest, db: Session = Depends(get_db)):
         for ch in to_add:
             # Résoudre ou créer le compte. N'update JAMAIS acclib si existe déjà.
             acc = db.execute(
-                select(Account).where(Account.client_id==req.client_id, Account.accnum==ch.accnum)
+                select(Account).where(Account.client_id==client_id, Account.accnum==ch.accnum)
             ).scalar_one_or_none()
             if acc is None:
-                acc = find_or_create_account(db, req.client_id, ch.accnum, (ch.acclib or ch.accnum))
+                acc = find_or_create_account(db, client_id, ch.accnum, (ch.acclib or ch.accnum))
             e = Entry(
-                client_id=req.client_id,
                 exercice_id=req.exercice_id,
                 date=ch.date,
                 jnl=req.journal,
@@ -123,10 +121,10 @@ def commit_piece(req: PieceCommitRequest, db: Session = Depends(get_db)):
                 e.date = ch.date
             if ch.accnum is not None:
                 acc = db.execute(
-                    select(Account).where(Account.client_id==req.client_id, Account.accnum==ch.accnum)
+                    select(Account).where(Account.client_id==client_id, Account.accnum==ch.accnum)
                 ).scalar_one_or_none()
                 if acc is None:
-                    acc = find_or_create_account(db, req.client_id, ch.accnum, (getattr(ch, "acclib", None) or ch.accnum))
+                    acc = find_or_create_account(db, client_id, ch.accnum, (getattr(ch, "acclib", None) or ch.accnum))
                 e.account_id = acc.id
             if ch.lib is not None:
                 e.lib = ch.lib
@@ -144,7 +142,11 @@ def commit_piece(req: PieceCommitRequest, db: Session = Depends(get_db)):
 
         db.flush()
 
-        he = HistoryEvent(client_id=req.client_id, exercice_id=req.exercice_id, description=req.description or "", counts_json=f"{{\"added\":{added},\"modified\":{modified},\"deleted\":{deleted}}}")
+        he = HistoryEvent(
+            exercice_id=req.exercice_id,
+            description=req.description or "",
+            counts_json=f"{{\"added\":{added},\"modified\":{modified},\"deleted\":{deleted}}}"
+        )
         db.add(he)
         db.commit()
     except Exception:

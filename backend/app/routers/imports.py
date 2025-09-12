@@ -28,7 +28,6 @@ def parse_date(s: str):
 
 @router.post("/csv")
 async def import_csv(
-    client_id: int = Form(...),
     exercice_id: int = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -37,6 +36,7 @@ async def import_csv(
         ex = get_exercice(db, exercice_id)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    client_id = ex.client_id
 
     raw = await file.read()
     try:
@@ -47,14 +47,15 @@ async def import_csv(
     if not text.strip():
         raise HTTPException(400, "Fichier vide")
 
-    sample = text.splitlines()[0]
+    sample = text[:4096]
     try:
         dialect = csv.Sniffer().sniff(sample)
     except Exception:
-        dialect = csv.excel
-        dialect.delimiter = ";"
-
+        class _Semi(csv.excel): pass
+        _Semi.delimiter = ';'
+        dialect = _Semi
     reader = csv.DictReader(io.StringIO(text), dialect=dialect)
+
     required = {"jnl", "accnum", "acclib", "date", "lib", "pieceRef", "debit", "credit", "pieceDate", "validDate", "montant", "iDevise"}
     missing = required - set([h.strip() for h in (reader.fieldnames or [])])
     if missing:
@@ -88,7 +89,6 @@ async def import_csv(
 
         rows.append(
             {
-                "client_id": client_id,
                 "exercice_id": exercice_id,
                 "date": date_obj,
                 "jnl": jnl,
@@ -137,7 +137,6 @@ async def import_csv(
             if acc is None:
                 acc = find_or_create_account(db, client_id, r["accnum"], r["acclib"] or r["accnum"])
             db.add(Entry(
-                client_id=client_id,
                 exercice_id=exercice_id,
                 date=r["date"],
                 jnl=r["jnl"],
@@ -152,7 +151,6 @@ async def import_csv(
                 i_devise=r["i_devise"]
             ))
         he = HistoryEvent(
-            client_id=client_id,
             exercice_id=exercice_id,
             description=f"Importer {len(rows)} écritures",
             counts_json=f'{{"added":{len(rows)}}}',

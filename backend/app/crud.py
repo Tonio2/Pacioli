@@ -36,12 +36,12 @@ def list_unbalanced_pieces(db: Session, exercice_id: int, limit: int = 100):
                func.sum(Entry.credit).label("tc"))
         .where(Entry.exercice_id == exercice_id)
         .group_by(Entry.jnl, Entry.piece_ref)
-        .having(func.abs(func.sum(Entry.debit - Entry.credit)) > 0.005)
+        .having(func.abs(func.sum(Entry.debit - Entry.credit)) != 0)
         .order_by(func.abs(func.sum(Entry.debit - Entry.credit)).desc())
         .limit(limit)
     )
     return [
-        {"jnl": r.jnl, "piece_ref": r.piece_ref, "total_debit": float(r.td or 0), "total_credit": float(r.tc or 0)}
+        {"jnl": r.jnl, "piece_ref": r.piece_ref, "total_debit": r.td or 0, "total_credit": r.tc or 0}
         for r in db.execute(q)
     ]
 

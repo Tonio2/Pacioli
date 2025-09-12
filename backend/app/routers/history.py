@@ -30,13 +30,11 @@ def _counts_human(d: dict) -> str:
 
 @router.get("")
 def list_history(
-    client_id: int = Query(...),
     exercice_id: int = Query(...),
     order: Literal["asc", "desc"] = "asc",
     db: Session = Depends(get_db),
 ):
     q = select(HistoryEvent).where(
-        HistoryEvent.client_id == client_id,
         HistoryEvent.exercice_id == exercice_id
     )
     q = q.order_by(HistoryEvent.created_at.asc() if order == "asc" else HistoryEvent.created_at.desc())
@@ -72,13 +70,11 @@ def update_history_description(id: int, description: str, db: Session = Depends(
 
 @router.get("/export")
 def export_history_txt(
-    client_id: int = Query(...),
     exercice_id: int = Query(...),
     order: Literal["asc", "desc"] = "asc",
     db: Session = Depends(get_db),
 ):
     q = select(HistoryEvent).where(
-        HistoryEvent.client_id == client_id,
         HistoryEvent.exercice_id == exercice_id
     )
     q = q.order_by(HistoryEvent.created_at.asc() if order == "asc" else HistoryEvent.created_at.desc())
@@ -87,7 +83,7 @@ def export_history_txt(
     lines: list[str] = []
     for r in rows:
         counts = _parse_counts(r.counts_json)
-        lines.append(f"- {r.created_at.strftime("%d/%m/%Y %H:%M")}")
+        lines.append(f"- {r.created_at.strftime('%d/%m/%Y %H:%M')}")
         lines.append(f"- {_counts_human(counts)}")
         lines.append(f"- {r.description or ''}")
         lines.append("")  # ligne vide entre les événements
@@ -95,6 +91,6 @@ def export_history_txt(
     content = "\n".join(lines) + ("\n" if lines else "")
     headers = {
         "Content-Type": "text/plain; charset=utf-8",
-        "Content-Disposition": f'attachment; filename="history_{client_id}_{exercice_id}.txt"',
+        "Content-Disposition": f'attachment; filename="history.txt"',
     }
     return Response(content=content, media_type="text/plain", headers=headers)

@@ -1,6 +1,6 @@
 import datetime
 from decimal import Decimal
-from sqlalchemy import String, Date, Numeric, ForeignKey, UniqueConstraint, DateTime
+from sqlalchemy import String, Date, Numeric, ForeignKey, UniqueConstraint, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
@@ -67,7 +67,6 @@ class Journal(Base):
 class Entry(Base):
     __tablename__ = "entries"
     id: Mapped[int] = mapped_column(primary_key=True)
-    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), nullable=False, index=True)
     exercice_id: Mapped[int] = mapped_column(ForeignKey("exercices.id", ondelete="CASCADE"), nullable=False, index=True)
     date: Mapped[datetime.date] = mapped_column(Date, nullable=False, index=True)
     jnl: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
@@ -88,8 +87,7 @@ class Entry(Base):
 class HistoryEvent(Base):
     __tablename__ = "history_events"
     id: Mapped[int] = mapped_column(primary_key=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow, nullable=False)
-    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), nullable=False, index=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     exercice_id: Mapped[int] = mapped_column(ForeignKey("exercices.id", ondelete="CASCADE"), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(String(512), nullable=True)
     counts_json: Mapped[str | None] = mapped_column(String(2048), nullable=True)

@@ -1,6 +1,8 @@
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select, func
+from datetime import date
 from typing import Optional
 from ..database import get_db
 from ..models import Entry, Account
@@ -8,9 +10,10 @@ from ..schemas import EntriesResponse, EntryOut
 
 router = APIRouter(prefix="/api/entries", tags=["entries"])
 
+def _parse_date(s): return date.fromisoformat(s)
+
 @router.get("", response_model=EntriesResponse)
 def list_entries(
-    client_id: int = Query(...),
     exercice_id: int = Query(...),
     journal: Optional[str] = None,
     compte: Optional[str] = None,   # accnum
@@ -32,7 +35,7 @@ def list_entries(
     q = (
         select(Entry)
         .options(selectinload(Entry.account))
-        .where(Entry.client_id == client_id, Entry.exercice_id == exercice_id)
+        .where(Entry.exercice_id == exercice_id)
     )
 
     # Filtres simples
@@ -41,13 +44,13 @@ def list_entries(
     if piece_ref:
         q = q.where(Entry.piece_ref == piece_ref)
     if min_date:
-        q = q.where(Entry.date >= min_date)
+        q = q.where(Entry.date >= _parse_date(min_date))
     if max_date:
-        q = q.where(Entry.date <= max_date)
+        q = q.where(Entry.date <= _parse_date(max_date))
     if min_amt is not None:
-        q = q.where((Entry.debit - Entry.credit) >= min_amt)
+        q = q.where((Entry.debit - Entry.credit) >= Decimal(str(min_amt)))
     if max_amt is not None:
-        q = q.where((Entry.debit - Entry.credit) <= max_amt)
+        q = q.where((Entry.debit - Entry.credit) <= Decimal(str(max_amt)))
     if search:
         like = f"%{search}%"
         q = q.where(Entry.lib.ilike(like))

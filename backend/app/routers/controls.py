@@ -3,6 +3,8 @@ from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from decimal import Decimal
+
+from ..schemas import UnbalancedJournalListResponse, UnbalancedPieceListResponse
 from ..database import get_db
 from ..models import Entry
 
@@ -15,9 +17,8 @@ def _fmt_csv_val(v: str) -> str:
     # CSV simple ; si tu préfères le TSV, remplace ';' par '\t'
     return (v or "").replace("\n", " ").replace(";", " ")
 
-@router.get("/unbalanced-pieces")
+@router.get("/unbalanced-pieces", response_model=UnbalancedPieceListResponse)
 def unbalanced_pieces(
-    client_id: int = Query(...),
     exercice_id: int = Query(...),
     page: int = 1,
     page_size: int = 100,
@@ -34,7 +35,7 @@ def unbalanced_pieces(
             func.sum(Entry.debit).label("debit"),
             func.sum(Entry.credit).label("credit"),
         )
-        .where(Entry.client_id == client_id, Entry.exercice_id == exercice_id)
+        .where(Entry.exercice_id == exercice_id)
         .group_by(Entry.jnl, Entry.piece_ref)
         .having(func.coalesce(func.sum(Entry.debit), 0) != func.coalesce(func.sum(Entry.credit), 0))
         .subquery()
@@ -66,16 +67,15 @@ def unbalanced_pieces(
                 "jnl": r.jnl,
                 "piece_ref": r.piece_ref,
                 "count": r.count or 0,
-                "debit": float(debit),
-                "credit": float(credit),
-                "diff": float(diff),
+                "debit": debit,
+                "credit": credit,
+                "diff": diff,
             })
 
     return {"items": items, "total": int(total)}
 
 @router.get("/unbalanced-pieces/export")
 def unbalanced_pieces_export(
-    client_id: int = Query(...),
     exercice_id: int = Query(...),
     db: Session = Depends(get_db),
 ):
@@ -87,7 +87,7 @@ def unbalanced_pieces_export(
             func.sum(Entry.debit).label("debit"),
             func.sum(Entry.credit).label("credit"),
         )
-        .where(Entry.client_id == client_id, Entry.exercice_id == exercice_id)
+        .where(Entry.exercice_id == exercice_id)
         .group_by(Entry.jnl, Entry.piece_ref)
         .having(func.coalesce(func.sum(Entry.debit), 0) != func.coalesce(func.sum(Entry.credit), 0))
         .order_by(Entry.jnl, Entry.piece_ref)
@@ -120,13 +120,12 @@ def unbalanced_pieces_export(
     content = "\n".join(lines) + "\n"
     headers = {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": f'attachment; filename="pieces_desequilibre_{client_id}_{exercice_id}.csv"',
+        "Content-Disposition": f'attachment; filename="pieces_desequilibre.csv"',
     }
     return Response(content=content, media_type="text/csv", headers=headers)
 
-@router.get("/unbalanced-journals")
+@router.get("/unbalanced-journals", response_model=UnbalancedJournalListResponse)
 def unbalanced_journals(
-    client_id: int = Query(...),
     exercice_id: int = Query(...),
     db: Session = Depends(get_db),
 ):
@@ -137,7 +136,7 @@ def unbalanced_journals(
             func.sum(Entry.debit).label("debit"),
             func.sum(Entry.credit).label("credit"),
         )
-        .where(Entry.client_id == client_id, Entry.exercice_id == exercice_id)
+        .where(Entry.exercice_id == exercice_id)
         .group_by(Entry.jnl)
         .having(func.coalesce(func.sum(Entry.debit), 0) != func.coalesce(func.sum(Entry.credit), 0))
         .order_by(Entry.jnl)
@@ -147,9 +146,9 @@ def unbalanced_journals(
         {
             "jnl": r.jnl,
             "count": r.count or 0,
-            "debit": float(r.debit or 0),
-            "credit": float(r.credit or 0),
-            "diff": float((r.debit or 0) - (r.credit or 0)),
+            "debit": Decimal(r.debit or 0),
+            "credit": Decimal(r.credit or 0),
+            "diff": Decimal(r.debit or 0) - Decimal(r.credit or 0),
         }
         for r in rows
     ]
@@ -157,7 +156,6 @@ def unbalanced_journals(
 
 @router.get("/unbalanced-journals/export")
 def unbalanced_journals_export(
-    client_id: int = Query(...),
     exercice_id: int = Query(...),
     db: Session = Depends(get_db),
 ):
@@ -168,7 +166,7 @@ def unbalanced_journals_export(
             func.sum(Entry.debit).label("debit"),
             func.sum(Entry.credit).label("credit"),
         )
-        .where(Entry.client_id == client_id, Entry.exercice_id == exercice_id)
+        .where(Entry.exercice_id == exercice_id)
         .group_by(Entry.jnl)
         .having(func.coalesce(func.sum(Entry.debit), 0) != func.coalesce(func.sum(Entry.credit), 0))
         .order_by(Entry.jnl)
@@ -198,6 +196,6 @@ def unbalanced_journals_export(
     content = "\n".join(lines) + "\n"
     headers = {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": f'attachment; filename="journaux_desequilibre_{client_id}_{exercice_id}.csv"',
+        "Content-Disposition": f'attachment; filename="journaux_desequilibre.csv"',
     }
     return Response(content=content, media_type="text/csv", headers=headers)
