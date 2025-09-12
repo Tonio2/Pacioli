@@ -24,6 +24,7 @@ function Navbar() {
             <Link to="/balance" className="underline">Balance</Link>
             <Link to="/entries" className="underline">Écritures</Link>
             <Link to="/import" className="underline">Import</Link>
+            <Link to="/controls" className="underline">Contrôles</Link>
             <Link to="/history" className="underline">Historique</Link>
             <Link to="/settings/clients" className="underline">Clients</Link>
             <Link to="/settings/exercices" className="underline">Exercices</Link>

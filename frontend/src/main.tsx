@@ -11,6 +11,7 @@ import Clients from './pages/Clients'
 import Exercices from './pages/Exercices'
 import ImportPage from './pages/Import'
 import HistoryPage from './pages/History'
+import ControlsPage from './pages/Controls'
 
 const qc = new QueryClient()
 
@@ -24,6 +25,7 @@ const router = createBrowserRouter([
             { path: '/settings/exercices', element: <Exercices /> },
             { path: '/import', element: <ImportPage /> },
             { path: '/history', element: <HistoryPage /> },
+            { path: '/controls', element: <ControlsPage /> },
             { index: true, element: <Balance /> },
         ]
     }

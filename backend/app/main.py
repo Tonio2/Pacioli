@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from .database import Base, engine
 from . import models
-from .routers import entries, balance, piece, imports, checks, accounts, journals, clients, exercices, history
+from .routers import entries, balance, piece, imports, checks, accounts, journals, clients, exercices, history, controls
 
 app = FastAPI(title="Compta MVP")
 
@@ -22,6 +22,7 @@ app.include_router(journals.router)
 app.include_router(clients.router)
 app.include_router(exercices.router)
 app.include_router(history.router)
+app.include_router(controls.router)
 
 @app.get("/")
 def root():
