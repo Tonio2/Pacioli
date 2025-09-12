@@ -186,3 +186,15 @@ class ExerciceOut(BaseModel):
     status: str
     class Config:
         from_attributes = True
+
+# --- Pages ---
+
+class PageInfo(BaseModel):
+    next: str | None
+    prev: str | None
+    has_next: bool
+    has_prev: bool
+
+class EntriesPage(BaseModel):
+    rows: List[EntryOut]
+    page_info: PageInfo

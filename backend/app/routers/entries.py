@@ -1,44 +1,101 @@
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import select, func
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy.orm import Session
+from sqlalchemy import select, func, and_, or_, literal_column
 from datetime import date
-from typing import Optional
+from typing import Optional, Tuple
+import base64, json, csv, io
+
 from ..database import get_db
 from ..models import Entry, Account
-from ..schemas import EntriesResponse, EntryOut
+from ..schemas import EntriesPage, EntryOut, PageInfo
 
 router = APIRouter(prefix="/api/entries", tags=["entries"])
 
-def _parse_date(s): return date.fromisoformat(s)
+def _parse_date(s: str) -> date:
+    return date.fromisoformat(s)
 
-@router.get("", response_model=EntriesResponse)
-def list_entries(
-    exercice_id: int = Query(...),
-    journal: Optional[str] = None,
-    compte: Optional[str] = None,   # accnum
-    piece_ref: Optional[str] = None,
-    min_date: Optional[str] = None,
-    max_date: Optional[str] = None,
-    min_amt: Optional[float] = None,
-    max_amt: Optional[float] = None,
-    search: Optional[str] = None,
-    sort: Optional[str] = "date,id",   # accepte "accnum"
-    page: int = 1,
-    page_size: int = 20000,
-    db: Session = Depends(get_db),
-):
-    if page < 1 or page_size < 1:
-        raise HTTPException(400, "page/page_size invalides")
+# ---- tokens opaques (after/before) ----
+def _encode_token(payload: dict) -> str:
+    return base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode()
 
-    # Base query: on sélectionne des Entry, on précharge Account pour éviter N+1
-    q = (
-        select(Entry)
-        .options(selectinload(Entry.account))
-        .where(Entry.exercice_id == exercice_id)
-    )
+def _decode_token(token: str) -> dict:
+    return json.loads(base64.urlsafe_b64decode(token.encode()).decode())
 
-    # Filtres simples
+def _filters_signature(
+    exercice_id: int,
+    journal: Optional[str],
+    piece_ref: Optional[str],
+    compte: Optional[str],
+    min_date: Optional[str],
+    max_date: Optional[str],
+    min_amt: Optional[float],
+    max_amt: Optional[float],
+    search: Optional[str],
+) -> dict:
+    # Normaliser pour comparaison stricte
+    return {
+        "exercice_id": int(exercice_id),
+        "journal": journal or None,
+        "piece_ref": piece_ref or None,
+        "compte": compte or None,
+        "min_date": min_date or None,
+        "max_date": max_date or None,
+        "min_amt": None if min_amt is None else float(min_amt),
+        "max_amt": None if max_amt is None else float(max_amt),
+        "search": (search or None),
+    }
+
+# ---- tri autorisé (clé primaire de tri + tiebreaker id ASC) ----
+def _parse_sort(sort: Optional[str]) -> Tuple[str, bool]:
+    # retourne (clé, desc)
+    s = (sort or "date,id").split(",")[0].strip()
+    if not s:
+        s = "date"
+    desc = s.startswith("-")
+    key = s[1:] if desc else s
+    allowed = {"date", "id", "jnl", "piece_ref", "accnum", "debit", "credit"}
+    if key not in allowed:
+        key = "date"
+        desc = False
+    return key, desc
+
+def _primary_expr(key: str):
+    if key == "date":
+        return Entry.date
+    if key == "id":
+        return Entry.id
+    if key == "jnl":
+        return Entry.jnl
+    if key == "piece_ref":
+        return Entry.piece_ref
+    if key == "accnum":
+        return Account.accnum
+    if key == "debit":
+        return Entry.debit
+    if key == "credit":
+        return Entry.credit
+    return Entry.date
+
+def _cursor_predicate(primary_col, desc: bool, after_cursor: Optional[dict], before_cursor: Optional[dict]):
+    # Construit le WHERE (> cursor) ou (< cursor) en respectant l'ordre
+    # Tie-breaker: Entry.id ASC en ordre normal
+    if after_cursor:
+        pv = after_cursor["pv"]
+        pid = after_cursor["id"]
+        op_main = primary_col < pv if desc else primary_col > pv
+        op_eq = and_(primary_col == pv, Entry.id > pid)
+        return or_(op_main, op_eq)
+    if before_cursor:
+        pv = before_cursor["pv"]
+        pid = before_cursor["id"]
+        op_main = primary_col > pv if desc else primary_col < pv
+        op_eq = and_(primary_col == pv, Entry.id < pid)
+        return or_(op_main, op_eq)
+    return None
+
+def _apply_filters(q, exercice_id, journal, piece_ref, compte, min_date, max_date, min_amt, max_amt, search, join_account: bool):
+    q = q.where(Entry.exercice_id == exercice_id)
     if journal:
         q = q.where(Entry.jnl == journal)
     if piece_ref:
@@ -54,63 +111,219 @@ def list_entries(
     if search:
         like = f"%{search}%"
         q = q.where(Entry.lib.ilike(like))
-
-    # Besoin d'un JOIN Account ? (filtre par compte ou tri sur accnum)
-    sort_parts = [(p.strip(), p.strip().startswith("-")) for p in (sort or "").split(",") if p.strip()]
-    needs_account_join = bool(compte) or any((s[0][1:] if s[1] else s[0]) == "accnum" for s in sort_parts)
-
     if compte:
-        # Filtrer par Account.accnum
-        q = q.join(Account, Account.id == Entry.account_id).where(Account.accnum == compte)
+        # on a déjà joint Account si join_account True
+        q = q.where(Account.accnum == compte)
+    return q
 
-    # Tri limité (possède accnum via Account)
-    # NB: si tri par accnum demandé, on s'assure d'avoir le JOIN.
-    if needs_account_join and not compte:
+@router.get("", response_model=EntriesPage)
+def list_entries_keyset(
+    exercice_id: int = Query(...),
+    journal: Optional[str] = None,
+    compte: Optional[str] = None,   # accnum
+    piece_ref: Optional[str] = None,
+    min_date: Optional[str] = None,
+    max_date: Optional[str] = None,
+    min_amt: Optional[float] = None,
+    max_amt: Optional[float] = None,
+    search: Optional[str] = None,
+    sort: Optional[str] = "date,id",
+    page_size: int = Query(100, ge=1, le=500),
+    after: Optional[str] = None,
+    before: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    if after and before:
+        raise HTTPException(400, "after et before sont exclusifs")
+
+    key, desc = _parse_sort(sort)
+    join_account = bool(compte) or key == "accnum"
+
+    # base select avec JOIN (si besoin) et colonnes nécessaires
+    # on sélectionne Entry + accnum/acclib pour éviter N+1
+    q = select(
+        Entry,
+        Account.accnum.label("accnum"),
+        Account.acclib.label("acclib"),
+    )
+    if join_account:
+        q = q.join(Account, Account.id == Entry.account_id)
+    else:
+        # pour récupérer quand même accnum/acclib sans forcer le JOIN dans SQLite, on joint quand même (léger)
         q = q.join(Account, Account.id == Entry.account_id)
 
-    allowed = {
-        "date": Entry.date,
-        "jnl": Entry.jnl,
-        "piece_ref": Entry.piece_ref,
-        "debit": Entry.debit,
-        "credit": Entry.credit,
-        "id": Entry.id,
-        "accnum": Account.accnum,   # tri via Account
-    }
+    q = _apply_filters(q, exercice_id, journal, piece_ref, compte, min_date, max_date, min_amt, max_amt, search, join_account)
 
-    order_cols = []
-    for part, is_desc in sort_parts:
-        key = part[1:] if is_desc else part
-        col = allowed.get(key)
-        if col is not None:
-            order_cols.append(col.desc() if is_desc else col.asc())
-    if not order_cols:
-        order_cols = [Entry.date.asc(), Entry.id.asc()]
+    primary_col = _primary_expr(key)
 
-    # Total avant pagination
-    total = db.scalar(select(func.count()).select_from(q.subquery()))
+    # Vérifier/valider token si présent
+    filt_sig = _filters_signature(exercice_id, journal, piece_ref, compte, min_date, max_date, min_amt, max_amt, search)
+    after_cursor = before_cursor = None
+    if after:
+        c = _decode_token(after)
+        if c.get("filt") != filt_sig or c.get("key") != key or c.get("desc") != desc:
+            raise HTTPException(400, "token invalide (filtres/tri ont changé)")
+        after_cursor = c["cur"]
+    if before:
+        c = _decode_token(before)
+        if c.get("filt") != filt_sig or c.get("key") != key or c.get("desc") != desc:
+            raise HTTPException(400, "token invalide (filtres/tri ont changé)")
+        before_cursor = c["cur"]
 
-    # Pagination
-    q = q.order_by(*order_cols).offset((page - 1) * page_size).limit(page_size)
+    cur_pred = _cursor_predicate(primary_col, desc, after_cursor, before_cursor)
+    if cur_pred is not None:
+        q = q.where(cur_pred)
 
-    rows = db.execute(q).scalars().all()
+    # Ordre d'affichage normal
+    order_cols = [primary_col.desc() if desc else primary_col.asc(), Entry.id.asc()]
+    # Si on navigue "before", on inverse pour prendre la page précédente puis on renversera
+    reversed_fetch = bool(before_cursor)
+    if reversed_fetch:
+        order_cols = [primary_col.asc() if desc else primary_col.desc(), Entry.id.desc()]
+    q = q.order_by(*order_cols).limit(page_size + 1)
 
-    # Construire la sortie enrichie (accnum/acclib viennent de la relation Account)
+    rows = db.execute(q).all()  # liste de tuples (Entry, accnum, acclib)
+
+    # Déterminer s'il y a une page suivante/précédente
+    has_extra = len(rows) > page_size
+    if has_extra:
+        rows = rows[:page_size]
+
+    # Si on a fetch en reverse, on remet l'ordre normal
+    if reversed_fetch:
+        rows = list(reversed(rows))
+
+    # Construire payloads
     out_rows = []
-    for e in rows:
-        accnum = e.account.accnum if e.account else ""
-        acclib = e.account.acclib if e.account else ""
+    for e, accnum, acclib in rows:
         out_rows.append(EntryOut(
             id=e.id,
             date=e.date,
             jnl=e.jnl,
             piece_ref=e.piece_ref,
             account_id=e.account_id,
-            accnum=accnum,
-            acclib=acclib,
+            accnum=accnum or "",
+            acclib=acclib or "",
             lib=e.lib,
             debit=e.debit,
             credit=e.credit,
         ))
 
-    return {"rows": out_rows, "total": int(total or 0)}
+    # next/prev tokens
+    def _pv_from_row(e: Entry, accnum_val: Optional[str]):
+        if key == "date": return e.date.isoformat()
+        if key == "id": return e.id
+        if key == "jnl": return e.jnl
+        if key == "piece_ref": return e.piece_ref
+        if key == "accnum": return accnum_val or ""
+        if key == "debit": return float(e.debit or 0)
+        if key == "credit": return float(e.credit or 0)
+        return e.date.isoformat()
+
+    next_token = prev_token = None
+    if out_rows:
+        first_e, first_accnum = rows[0][0], rows[0][1]
+        last_e, last_accnum = rows[-1][0], rows[-1][1]
+        cur_first = {"pv": _pv_from_row(first_e, first_accnum), "id": first_e.id}
+        cur_last = {"pv": _pv_from_row(last_e, last_accnum), "id": last_e.id}
+        base_payload = {"v": 1, "key": key, "desc": desc, "filt": filt_sig}
+        prev_token = _encode_token({**base_payload, "cur": cur_first})
+        next_token = _encode_token({**base_payload, "cur": cur_last})
+
+    has_prev = bool(before or after) if out_rows else False
+    if reversed_fetch:
+        # on venait de 'before' => has_prev dépend du "has_extra"
+        has_prev = has_extra
+    has_next = has_extra if not reversed_fetch else True  # en backward, il existe toujours une "page suivante" vers l'avant
+
+    page_info = PageInfo(next=next_token, prev=prev_token, has_next=bool(has_next), has_prev=bool(has_prev))
+    return {"rows": out_rows, "page_info": page_info}
+
+
+# -------- SUGGEST piece_ref --------
+@router.get("/suggest-piece")
+def suggest_piece(
+    exercice_id: int = Query(...),
+    q: str = "",
+    limit: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    q = (q or "").strip()
+    stmt = select(Entry.piece_ref).where(Entry.exercice_id == exercice_id)
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where(Entry.piece_ref.ilike(like))
+    stmt = stmt.group_by(Entry.piece_ref).order_by(Entry.piece_ref).limit(limit)
+    items = [r[0] for r in db.execute(stmt).all() if r[0]]
+    return {"items": items}
+
+
+# -------- EXPORT CSV --------
+@router.get("/export")
+def export_entries_csv(
+    exercice_id: int = Query(...),
+    journal: Optional[str] = None,
+    compte: Optional[str] = None,
+    piece_ref: Optional[str] = None,
+    min_date: Optional[str] = None,
+    max_date: Optional[str] = None,
+    min_amt: Optional[float] = None,
+    max_amt: Optional[float] = None,
+    search: Optional[str] = None,
+    sort: Optional[str] = "date,id",
+    db: Session = Depends(get_db),
+):
+    key, desc = _parse_sort(sort)
+    # On joint Account pour accnum/acclib
+    q = select(
+        Entry.id,
+        Entry.exercice_id,
+        Entry.date,
+        Entry.jnl,
+        Entry.piece_ref,
+        Entry.account_id,
+        Account.accnum.label("accnum"),
+        Account.acclib.label("acclib"),
+        Entry.lib,
+        Entry.debit,
+        Entry.credit,
+        Entry.piece_date,
+        Entry.valid_date,
+        Entry.montant,
+        Entry.i_devise,
+    ).join(Account, Account.id == Entry.account_id)
+
+    q = _apply_filters(q, exercice_id, journal, piece_ref, compte, min_date, max_date, min_amt, max_amt, search, True)
+
+    primary_col = _primary_expr(key)
+    order_cols = [primary_col.desc() if desc else primary_col.asc(), Entry.id.asc()]
+    q = q.order_by(*order_cols)
+
+    rows = db.execute(q).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+    writer.writerow([
+        "id","exercice_id","date","jnl","piece_ref","account_id","accnum","acclib","lib",
+        "debit","credit","piece_date","valid_date","montant","i_devise"
+    ])
+    for r in rows:
+        (
+            _id, _exo, _date, _jnl, _piece, _acc_id, _accnum, _acclib, _lib,
+            _debit, _credit, _pdate, _vdate, _montant, _idev
+        ) = r
+        writer.writerow([
+            _id, _exo, (_date.isoformat() if _date else ""),
+            _jnl or "", _piece or "", _acc_id, _accnum or "", _acclib or "", (_lib or "").replace("\n", " "),
+            f"{Decimal(_debit or 0):.2f}".replace(".", ","), f"{Decimal(_credit or 0):.2f}".replace(".", ","),
+            (_pdate.isoformat() if _pdate else ""), (_vdate.isoformat() if _vdate else ""),
+            (f"{Decimal(_montant):.2f}".replace(".", ",") if _montant is not None else ""),
+            _idev or "",
+        ])
+
+    content = output.getvalue()
+    headers = {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": f'attachment; filename="entries_{exercice_id}.csv"',
+    }
+    return Response(content=content, media_type="text/csv", headers=headers)
