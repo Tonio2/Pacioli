@@ -1,0 +1,16 @@
+<!-- logo-compta.svg -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-labelledby="title desc" role="img">
+  <title id="title">Logo compta minimaliste</title>
+  <desc id="desc">Carré arrondi avec trois lignes de registre et une coche de rapprochement</desc>
+
+  <!-- cadre -->
+  <rect x="3" y="3" width="18" height="18" rx="4"></rect>
+
+  <!-- lignes de registre -->
+  <line x1="7" y1="8" x2="13" y2="8"></line>
+  <line x1="7" y1="12" x2="13" y2="12"></line>
+  <line x1="7" y1="16" x2="11" y2="16"></line>
+
+  <!-- coche de rapprochement -->
+  <path d="M14.5 16.5 L16.6 18.6 L20 15"></path>
+</svg>

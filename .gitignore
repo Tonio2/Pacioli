@@ -1,0 +1,11 @@
+# Backend
+.venv
+compta_mvp.egg-info
+app.db
+*.pyc
+
+# Frontend
+node_modules
+
+# Editor
+todo.md

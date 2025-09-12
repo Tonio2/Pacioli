@@ -1,0 +1,20 @@
+[project]
+name = "compta-mvp"
+version = "0.1.0"
+description = "MVP Compta FEC — FastAPI + SQLite"
+authors = [{name = "you"}]
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "sqlalchemy>=2.0.30",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.1",
+]
+
+
+[tool.uvicorn]
+factory = false
+host = "127.0.0.1"
+port = 8000
+reload = true
