@@ -55,7 +55,7 @@ async def import_csv(
         dialect.delimiter = ";"
 
     reader = csv.DictReader(io.StringIO(text), dialect=dialect)
-    required = {"jnl", "accnum", "acclib", "date", "lib", "pieceRef", "debit", "credit"}
+    required = {"jnl", "accnum", "acclib", "date", "lib", "pieceRef", "debit", "credit", "pieceDate", "validDate", "montant", "iDevise"}
     missing = required - set([h.strip() for h in (reader.fieldnames or [])])
     if missing:
         raise HTTPException(400, f"Colonnes manquantes: {', '.join(sorted(missing))}")
@@ -73,6 +73,13 @@ async def import_csv(
             piece_ref = (row["pieceRef"] or "").strip()
             debit = parse_amount(row["debit"])
             credit = parse_amount(row["credit"])
+            piece_date = parse_date(row["pieceDate"]) if row["pieceDate"] else date_obj
+            valid_date = parse_date(row["validDate"]) if row["validDate"] else date_obj
+            if jnl == "AN":
+                piece_date = ex.date_start
+                valid_date = ex.date_start
+            montant = parse_amount(row["montant"]) if row["montant"] else None
+            i_devise = row["iDevise"] or None
         except Exception as e:
             raise HTTPException(400, f"Erreur parsing ligne {i}: {e}")
 
@@ -89,8 +96,12 @@ async def import_csv(
                 "accnum": accnum,   # temporaire pour résolution
                 "acclib": acclib,   # temporaire pour création si besoin
                 "lib": lib,
-                "debit": float(debit),
-                "credit": float(credit),
+                "debit": debit,
+                "credit": credit,
+                "piece_date": piece_date,
+                "valid_date": valid_date,
+                "montant": montant,
+                "i_devise": i_devise
             }
         )
         delta_rows.append({"date": date_obj, "debit": debit, "credit": credit})
@@ -133,8 +144,12 @@ async def import_csv(
                 piece_ref=r["piece_ref"],
                 account_id=acc.id,
                 lib=r["lib"],
-                debit=Decimal(r["debit"]),
-                credit=Decimal(r["credit"]),
+                debit=r["debit"],
+                credit=r["credit"],
+                piece_date=r["piece_date"],
+                valid_date=r["valid_date"],
+                montant=r["montant"],
+                i_devise=r["i_devise"]
             ))
         he = HistoryEvent(
             client_id=client_id,

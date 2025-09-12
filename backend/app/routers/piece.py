@@ -110,6 +110,8 @@ def commit_piece(req: PieceCommitRequest, db: Session = Depends(get_db)):
                 lib=ch.lib,
                 debit=Decimal(ch.debit or 0),
                 credit=Decimal(ch.credit or 0),
+                piece_date=ch.date,
+                valid_date=ch.date
             )
             db.add(e)
             added += 1

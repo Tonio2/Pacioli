@@ -15,8 +15,8 @@ def ensure_dates_in_exercice(rows: Iterable[dict], start: date, end: date):
 
 
 def ensure_batch_balanced(rows: Iterable[dict]):
-    total = Decimal("0")
+    total = Decimal(0)
     for r in rows:
-        total += (r.get("debit", Decimal("0")) - r.get("credit", Decimal("0")))
-    if total.copy_abs() > Decimal("0.005"):
+        total += (r.get("debit", Decimal(0)) - r.get("credit", Decimal(0)))
+    if total.copy_abs() != Decimal(0):
         raise ValidationError(f"Lot non équilibré (Δ={total}) : Σ(debit)-Σ(credit) doit être 0")

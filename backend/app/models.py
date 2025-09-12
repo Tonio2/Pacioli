@@ -77,6 +77,11 @@ class Entry(Base):
     debit: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     credit: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
 
+    piece_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    valid_date: Mapped[datetime.date] = mapped_column(Date, nullable=False, index=True)
+    montant: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=True)
+    i_devise: Mapped[str] = mapped_column(String(32), nullable=True)
+
     exercice: Mapped["Exercice"] = relationship(back_populates="entries")
     account: Mapped["Account"] = relationship(back_populates="entries")
 
