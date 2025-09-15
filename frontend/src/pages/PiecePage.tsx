@@ -1,296 +1,177 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../api/client'
-import { useParams } from 'react-router-dom'
-import { useApp } from '../context/AppContext'
-import { useEffect, useRef, useState } from 'react'
+// src/pages/PiecePage.tsx
+import { useEffect, useReducer, useRef, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { api } from "../api/client";
+import { useParams } from "react-router-dom";
+import { useApp } from "../context/AppContext";
 
-type Row = {
-  id?: number
-  date: string
-  jnl: string
-  piece_ref: string
-  accnum: string
-  acclib: string
-  lib: string
-  debit: number
-  credit: number
-  _op?: 'keep' | 'add' | 'modify' | 'delete'
-  _accountExists?: boolean
-}
-
-type SuggestItem = { account_id: number; accnum: string; acclib: string }
+import { useTotals } from "../modules/pieces/useTotals";
+import { rowsReducer, makeRow } from "../modules/pieces/rowsReducer";
+import { useAccountSuggest } from "../modules/pieces/useAccountSuggest";
+import { diffChanges } from "../modules/pieces/diff";
+import type { Row } from "../modules/pieces/types";
+import PieceRowsTable from "../components/PieceRowsTable";
 
 export default function PiecePage() {
-  const { jnl, piece_ref } = useParams()
-  const { clientId, exerciceId } = useApp()
-  const qc = useQueryClient()
+    const { jnl, piece_ref } = useParams();
+    const { clientId, exerciceId } = useApp();
+    const qc = useQueryClient();
 
-  const { data } = useQuery({
-    queryKey: ['piece', clientId, exerciceId, jnl, piece_ref],
-    queryFn: async () =>
-      (await api.get('/api/piece', {
-        params: { client_id: clientId, exercice_id: exerciceId, journal: jnl, piece_ref },
-      })).data,
-    enabled: !!clientId && !!exerciceId && !!jnl && !!piece_ref,
-  })
+    const { data } = useQuery({
+        queryKey: ["piece", clientId, exerciceId, jnl, piece_ref],
+        queryFn: async () =>
+            (
+                await api.get("/api/piece", {
+                    params: { client_id: clientId, exercice_id: exerciceId, journal: jnl, piece_ref },
+                })
+            ).data,
+        enabled: !!clientId && !!exerciceId && !!jnl && !!piece_ref,
+    });
 
-  const [rows, setRows] = useState<Row[]>([])
-  const [suggest, setSuggest] = useState<Record<number, SuggestItem[]>>({})
-  const debounceRef = useRef<Record<number, any>>({})
+    const [rows, dispatch] = useReducer(rowsReducer, []);
+    const originalRowsRef = useRef<Row[]>([]);
+    const { itemsByUid, onChange: onAccSuggest, clear: clearSuggest } = useAccountSuggest(
+        clientId as number | undefined
+    );
 
-  useEffect(() => {
-    if (data?.rows) {
-      setRows(
-        data.rows.map((r: any) => ({
-          ...r,
-          _op: 'keep',
-          _accountExists: !!r.accnum, // s'il y a un compte lié, on considère existant
-        })),
-      )
-    } else {
-      setRows([])
-    }
-  }, [data?.rows, clientId, exerciceId, jnl, piece_ref])
-
-  const mutate = useMutation({
-    mutationFn: async (payload: any) => (await api.post('/api/piece/commit', payload)).data,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['entries'] })
-      qc.invalidateQueries({ queryKey: ['balance'] })
-      qc.invalidateQueries({ queryKey: ['piece'] })
-      alert('Enregistré')
-    },
-  })
-
-  const submit = () => {
-    const changes = rows
-      .map((r) => {
-        if (r._op === 'add')
-          return {
-            op: 'add',
-            date: r.date,
-            accnum: r.accnum,
-            acclib: r.acclib, // utilisé seulement si on crée le compte
-            lib: r.lib,
-            debit: r.debit,
-            credit: r.credit,
-          }
-        if (r._op === 'delete') return { op: 'delete', entry_id: r.id }
-        if (r._op === 'modify')
-          return {
-            op: 'modify',
-            entry_id: r.id,
-            date: r.date,
-            accnum: r.accnum, // si changé, on reliera au nouveau compte (créé si besoin)
-            acclib: r.acclib, // ignoré si le compte existe déjà
-            lib: r.lib,
-            debit: r.debit,
-            credit: r.credit,
-          }
-        return null
-      })
-      .filter(Boolean)
-
-    mutate.mutate({ client_id: clientId, exercice_id: exerciceId, journal: jnl, piece_ref, changes })
-  }
-
-  const onAccnumChange = (idx: number, value: string) => {
-    setRows((prev) =>
-      prev.map((x, i) =>
-        i === idx ? { ...x, accnum: value, _op: x._op === 'add' ? 'add' : 'modify' } : x,
-      ),
-    )
-
-    // Debounce suggest + lookup
-    if (debounceRef.current[idx]) clearTimeout(debounceRef.current[idx])
-    debounceRef.current[idx] = setTimeout(async () => {
-      // 1) Suggest pour dropdown
-      if (value && value.length >= 2 && clientId) {
-        const resp = await api.get('/api/accounts/suggest', { params: { client_id: clientId, q: value, limit: 10 } })
-        setSuggest((s) => ({ ...s, [idx]: resp.data.items || [] }))
-      } else {
-        setSuggest((s) => ({ ...s, [idx]: [] }))
-      }
-      // 2) Lookup pour auto-remplir acclib
-      if (clientId) {
-        const res = await api.get('/api/accounts/lookup', { params: { client_id: clientId, accnum: value } })
-        if (res.data.exists) {
-          setRows((prev) =>
-            prev.map((x, i) =>
-              i === idx ? { ...x, acclib: res.data.acclib, _accountExists: true } : x,
-            ),
-          )
+    useEffect(() => {
+        if (data?.rows) {
+            const next: Row[] = data.rows.map((r: any) =>
+                makeRow({
+                    id: r.id,
+                    date: r.date,
+                    jnl: r.jnl,
+                    piece_ref: r.piece_ref,
+                    accnum: r.accnum ?? "",
+                    acclib: r.acclib ?? "",
+                    lib: r.lib ?? "",
+                    debit: r.debit != null ? String(r.debit) : "",
+                    credit: r.credit != null ? String(r.credit) : "",
+                    _accountExists: !!r.accnum,
+                })
+            );
+            originalRowsRef.current = next.map((r) => ({ ...r })); // snapshot
+            dispatch({ type: "set", rows: next });
         } else {
-          setRows((prev) =>
-            prev.map((x, i) =>
-              i === idx ? { ...x, _accountExists: false } : x,
-            ),
-          )
+            originalRowsRef.current = [];
+            dispatch({ type: "set", rows: [] });
         }
-      }
-    }, 300)
-  }
+    }, [data?.rows, clientId, exerciceId, jnl, piece_ref]);
 
-  const applySuggest = (idx: number, item: SuggestItem) => {
-    setRows((prev) =>
-      prev.map((x, i) =>
-        i === idx
-          ? {
-              ...x,
-              accnum: item.accnum,
-              acclib: item.acclib,
-              _accountExists: true,
-              _op: x._op === 'add' ? 'add' : 'modify',
+    // Raccourci global Ctrl/Cmd + Entrée => ajouter ligne
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                e.preventDefault();
+                addLine();
             }
-          : x,
-      ),
-    )
-    setSuggest((s) => ({ ...s, [idx]: [] }))
-  }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [jnl, piece_ref]);
 
-  return (
-    <div className="space-y-3">
-      <h1 className="text-xl font-semibold">
-        Pièce {jnl} / {piece_ref}
-      </h1>
+    const totals = useTotals(rows);
+    const canSubmit = rows.length > 0 && totals.isBalanced && !totals.hasAmountErrors && !totals.bothSidesFilled;
 
-      <button
-        className="border px-3 py-1"
-        onClick={() =>
-          setRows([
-            ...rows,
-            {
-              _op: 'add',
-              date: new Date().toISOString().slice(0, 10),
-              jnl: jnl!,
-              piece_ref: piece_ref!,
-              accnum: '',
-              acclib: '',
-              lib: '',
-              debit: 0,
-              credit: 0,
-              _accountExists: false,
+    const [banner, setBanner] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+    const mutate = useMutation({
+        mutationFn: async (payload: any) => (await api.post("/api/piece/commit", payload)).data,
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ["entries"] });
+            qc.invalidateQueries({ queryKey: ["balance"] });
+            qc.invalidateQueries({ queryKey: ["piece"] });
+            setBanner({ type: "success", message: "Pièce enregistrée." });
+        },
+        onError: (err: any) => {
+            const msg = err?.response?.data?.message || err?.message || "Erreur inconnue.";
+            setBanner({ type: "error", message: msg });
+        },
+    });
+
+    const submit = () => {
+        const changes = diffChanges(originalRowsRef.current, rows);
+        mutate.mutate({
+            client_id: clientId,
+            exercice_id: exerciceId,
+            journal: jnl,
+            piece_ref,
+            changes,
+        });
+    };
+
+    const addLine = () =>
+        dispatch({
+            type: "add",
+            row: {
+                date: new Date().toISOString().slice(0, 10),
+                jnl: jnl!,
+                piece_ref: piece_ref!,
             },
-          ])
-        }
-      >
-        + Ajouter ligne
-      </button>
+        });
 
-      <table className="min-w-full border border-gray-300 text-sm rounded-lg overflow-hidden shadow">
-        <thead className="bg-gray-100">
-          <tr>
-            <th className="border border-gray-300 px-3 py-2 text-left w-36">Date</th>
-            <th className="border border-gray-300 px-3 py-2 text-left w-40">Compte</th>
-            <th className="border border-gray-300 px-3 py-2 text-left w-64">Libellé du compte</th>
-            <th className="border border-gray-300 px-3 py-2 text-left">Libellé écriture</th>
-            <th className="border border-gray-300 px-3 py-2 text-right w-32">Débit</th>
-            <th className="border border-gray-300 px-3 py-2 text-right w-32">Crédit</th>
-            <th className="border border-gray-300 px-3 py-2 text-center w-28">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, idx) => (
-            <tr key={idx} className="odd:bg-white even:bg-gray-50 hover:bg-blue-50 transition">
-              <td className="border border-gray-200 px-2 py-2">
-                <input
-                  type="date"
-                  className="w-full border rounded px-2 py-1"
-                  value={r.date}
-                  onChange={(e) =>
-                    setRows(rows.map((x, i) => (i === idx ? { ...x, date: e.target.value, _op: x._op === 'add' ? 'add' : 'modify' } : x)))
-                  }
-                />
-              </td>
+    const updateRow = (uid: string, patch: Partial<Row>) => dispatch({ type: "update", uid, patch });
+    const deleteRow = (uid: string, isNew: boolean) => dispatch({ type: "delete", uid, isNew });
+    const undoDelete = (uid: string) => dispatch({ type: "undoDelete", uid });
 
-              {/* Compte + dropdown */}
-              <td className="border border-gray-200 px-2 py-2 relative">
-                <input
-                  className="w-full border rounded px-2 py-1"
-                  value={r.accnum}
-                  onChange={(e) => onAccnumChange(idx, e.target.value)}
-                  onBlur={() => setTimeout(() => setSuggest((s) => ({ ...s, [idx]: [] })), 150)}
-                />
-                {suggest[idx] && suggest[idx].length > 0 && (
-                  <div className="absolute z-10 bg-white border rounded shadow top-full left-0 right-0 max-h-48 overflow-auto">
-                    {suggest[idx].map((it) => (
-                      <div
-                        key={it.account_id}
-                        className="px-2 py-1 hover:bg-gray-100 cursor-pointer"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => applySuggest(idx, it)}
-                      >
-                        <div className="font-mono">{it.accnum}</div>
-                        <div className="text-xs text-gray-600">{it.acclib}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </td>
+    return (
+        <div className="space-y-3">
+            <h1 className="text-xl font-semibold">
+                Pièce {jnl} / {piece_ref}
+            </h1>
 
-              {/* Libellé du compte */}
-              <td className="border border-gray-200 px-2 py-2">
-                <input
-                  className="w-full border rounded px-2 py-1"
-                  value={r.acclib}
-                  disabled={!!r._accountExists}
-                  placeholder={r._accountExists ? 'Compte existant' : 'Saisir libellé du compte'}
-                  onChange={(e) =>
-                    setRows(rows.map((x, i) => (i === idx ? { ...x, acclib: e.target.value, _op: x._op === 'add' ? 'add' : 'modify' } : x)))
-                  }
-                />
-              </td>
+            {banner && (
+                <div
+                    className={`px-3 py-2 rounded ${banner.type === "success" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-700"
+                        }`}
+                >
+                    {banner.message}
+                </div>
+            )}
 
-              {/* Libellé écriture */}
-              <td className="border border-gray-200 px-2 py-2">
-                <input
-                  className="w-full border rounded px-2 py-1 w-96"
-                  value={r.lib}
-                  onChange={(e) =>
-                    setRows(rows.map((x, i) => (i === idx ? { ...x, lib: e.target.value, _op: x._op === 'add' ? 'add' : 'modify' } : x)))
-                  }
-                />
-              </td>
-
-              <td className="border border-gray-200 px-2 py-2 text-right">
-                <input
-                  className="w-full border rounded px-2 py-1 text-right"
-                  value={r.debit}
-                  onChange={(e) =>
-                    setRows(
-                      rows.map((x, i) =>
-                        i === idx ? { ...x, debit: parseFloat(e.target.value || '0'), _op: x._op === 'add' ? 'add' : 'modify' } : x,
-                      ),
-                    )
-                  }
-                />
-              </td>
-              <td className="border border-gray-200 px-2 py-2 text-right">
-                <input
-                  className="w-full border rounded px-2 py-1 text-right"
-                  value={r.credit}
-                  onChange={(e) =>
-                    setRows(
-                      rows.map((x, i) =>
-                        i === idx ? { ...x, credit: parseFloat(e.target.value || '0'), _op: x._op === 'add' ? 'add' : 'modify' } : x,
-                      ),
-                    )
-                  }
-                />
-              </td>
-              <td className="border border-gray-200 px-2 py-2 text-center">
-                <button className="border px-2 py-1" onClick={() => setRows(rows.map((x, i) => (i === idx ? { ...x, _op: 'delete' } : x)))}>
-                  Supprimer
+            <div className="flex items-center justify-between">
+                <button type="button" className="border px-3 py-1" onClick={addLine} title="Ctrl/Cmd + Entrée">
+                    + Ajouter ligne
                 </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                <div className="text-sm">
+                    <div>Total Débit: {totals.debit.toFixed(2)}</div>
+                    <div>Total Crédit: {totals.credit.toFixed(2)}</div>
+                    <div className={totals.isBalanced ? "text-green-600" : "text-red-600"}>
+                        Différence: {totals.diff.toFixed(2)}
+                    </div>
+                </div>
+            </div>
 
-      <button className="border px-3 py-1" onClick={submit} disabled={mutate.isPending}>
-        {mutate.isPending ? 'Enregistrement…' : 'Enregistrer'}
-      </button>
-    </div>
-  )
+            <PieceRowsTable
+                rows={rows}
+                itemsByUid={itemsByUid}
+                onAccSuggest={onAccSuggest}
+                clearSuggest={clearSuggest}
+                updateRow={updateRow}
+                deleteRow={deleteRow}
+                undoDelete={undoDelete}
+            />
+
+            <div className="flex items-center justify-between">
+                <div className="text-sm">
+                    {totals.hasAmountErrors && (
+                        <span className="text-red-600">Corrige les montants invalides avant d’enregistrer.</span>
+                    )}
+                    {totals.bothSidesFilled && (
+                        <span className="ml-3 text-red-600">Une ligne ne doit pas avoir à la fois Débit et Crédit.</span>
+                    )}
+                    {!totals.isBalanced && <span className="ml-3 text-red-600">La pièce doit être équilibrée.</span>}
+                </div>
+                <button
+                    type="button"
+                    className="border px-3 py-1 disabled:opacity-50"
+                    onClick={submit}
+                    disabled={mutate.isPending || !canSubmit}
+                >
+                    {mutate.isPending ? "Enregistrement…" : "Enregistrer"}
+                </button>
+            </div>
+        </div>
+    );
 }

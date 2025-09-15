@@ -1,14 +1,42 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import select, delete
+from sqlalchemy import func, select, delete
 from decimal import Decimal
 from ..database import get_db
-from ..models import Entry, HistoryEvent, Account
+from ..models import Entry, HistoryEvent, Account, JournalSequence
 from ..schemas import PieceCommitRequest, PieceCommitResponse, PieceGetResponse
 from ..validators import ensure_batch_balanced, ensure_dates_in_exercice
 from ..crud import list_unbalanced_pieces, get_exercice, find_or_create_account
 
 router = APIRouter(prefix="/api", tags=["piece"])
+
+@router.get("/piece/next_ref")
+def get_next_ref(exercice_id: int, journal: str, width: int = 5, db: Session = Depends(get_db)):
+    # 1) Lire le dernier numéro mémorisé
+    seq = db.execute(
+        select(JournalSequence).where(
+            JournalSequence.exercice_id == exercice_id,
+            JournalSequence.jnl == journal
+        )
+    ).scalar_one_or_none()
+    start = (seq.last_number if seq else 0) + 1
+
+    # 2) Trouver le premier suffixe libre à partir de start
+    #    (on vérifie l'existence dans entries)
+    n = start
+    while True:
+        cand = f"{journal}-{n:0{width}d}"
+        exists = db.execute(
+            select(func.count(Entry.id)).where(
+                Entry.exercice_id == exercice_id,
+                Entry.jnl == journal,
+                Entry.piece_ref == cand
+            )
+        ).scalar_one()
+        if exists == 0:
+            return {"next_ref": cand, "next_number": n}
+        n += 1
+
 
 @router.get("/piece", response_model=PieceGetResponse)
 def get_piece(exercice_id: int, journal: str, piece_ref: str, db: Session = Depends(get_db)):
@@ -149,6 +177,28 @@ def commit_piece(req: PieceCommitRequest, db: Session = Depends(get_db)):
         )
         db.add(he)
         db.commit()
+
+        is_new_piece = (len(existing) == 0 and added > 0)
+
+        if is_new_piece:
+            seq = db.execute(
+                select(JournalSequence).where(
+                    JournalSequence.exercice_id == req.exercice_id,
+                    JournalSequence.jnl == req.journal
+                )
+            ).scalar_one_or_none()
+
+            if seq is None:
+                seq = JournalSequence(exercice_id=req.exercice_id, jnl=req.journal, last_number=0)
+                db.add(seq)
+                db.flush()
+            else:
+                start = seq.last_number + 1
+                cand = f"{req.journal}-{start:05d}"
+                if req.piece_ref == cand:
+                    seq.last_number = start
+            db.commit()
+
     except Exception:
         db.rollback()
         raise

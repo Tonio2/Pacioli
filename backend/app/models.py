@@ -1,6 +1,6 @@
 import datetime
 from decimal import Decimal
-from sqlalchemy import String, Date, Numeric, ForeignKey, UniqueConstraint, DateTime, func
+from sqlalchemy import Integer, String, Date, Numeric, ForeignKey, UniqueConstraint, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
@@ -63,6 +63,16 @@ class Journal(Base):
     jnl_lib: Mapped[str] = mapped_column(String(255), nullable=False)
 
     client: Mapped["Client"] = relationship(back_populates="journals")
+
+class JournalSequence(Base):
+    __tablename__ = "journal_sequences"
+    __table_args__ = (UniqueConstraint("exercice_id", "jnl", name="uix_seq_ex_jnl"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    exercice_id: Mapped[int] = mapped_column(ForeignKey("exercices.id", ondelete="CASCADE"), nullable=False, index=True)
+    jnl: Mapped[str] = mapped_column(String(32), nullable=False)
+    last_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
 
 class Entry(Base):
     __tablename__ = "entries"

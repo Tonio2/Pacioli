@@ -23,6 +23,7 @@ function Navbar() {
             <img src={logo} alt="Logo compta" className="w-6 h-6" />
             <Link to="/balance" className="underline">Balance</Link>
             <Link to="/entries" className="underline">Écritures</Link>
+            <Link to="/piece/new" className='underline'>Saisie</Link>
             <Link to="/import" className="underline">Import</Link>
             <Link to="/controls" className="underline">Contrôles</Link>
             <Link to="/history" className="underline">Historique</Link>

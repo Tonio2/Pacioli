@@ -13,6 +13,7 @@ import ImportPage from './pages/Import'
 import HistoryPage from './pages/History'
 import ControlsPage from './pages/Controls'
 import FecPage from './pages/Fec'
+import NewPiecePage from './pages/NewPiecePage'
 
 const qc = new QueryClient()
 
@@ -21,6 +22,7 @@ const router = createBrowserRouter([
         path: '/', element: <App />, children: [
             { path: '/balance', element: <Balance /> },
             { path: '/entries', element: <Entries /> },
+            { path: '/piece/new', element: <NewPiecePage /> },
             { path: '/piece/:jnl/:piece_ref', element: <PiecePage /> },
             { path: '/settings/clients', element: <Clients /> },
             { path: '/settings/exercices', element: <Exercices /> },
