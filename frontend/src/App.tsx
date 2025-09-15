@@ -26,6 +26,7 @@ function Navbar() {
             <Link to="/import" className="underline">Import</Link>
             <Link to="/controls" className="underline">Contrôles</Link>
             <Link to="/history" className="underline">Historique</Link>
+            <Link to="/fec" className="underline">FEC</Link>
             <Link to="/settings/clients" className="underline">Clients</Link>
             <Link to="/settings/exercices" className="underline">Exercices</Link>
             <div className="ml-auto flex gap-2 items-center">

@@ -12,6 +12,7 @@ import Exercices from './pages/Exercices'
 import ImportPage from './pages/Import'
 import HistoryPage from './pages/History'
 import ControlsPage from './pages/Controls'
+import FecPage from './pages/Fec'
 
 const qc = new QueryClient()
 
@@ -26,6 +27,7 @@ const router = createBrowserRouter([
             { path: '/import', element: <ImportPage /> },
             { path: '/history', element: <HistoryPage /> },
             { path: '/controls', element: <ControlsPage /> },
+            { path: '/fec', element: <FecPage /> },
             { index: true, element: <Balance /> },
         ]
     }
