@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 
-from ..helpers import fmt_cents
+from ..helpers import fmt_cents_fr
 from ..schemas import UnbalancedJournalListResponse, UnbalancedPieceListResponse
 from ..database import get_db
 from ..models import Entry
@@ -103,9 +103,9 @@ def unbalanced_pieces_export(
                     _fmt_csv_val(r.jnl or ""),
                     _fmt_csv_val(r.piece_ref or ""),
                     str(r.count or 0),
-                    fmt_cents(debit_minor),
-                    fmt_cents(credit_minor),
-                    fmt_cents(diff_minor),
+                    fmt_cents_fr(debit_minor),
+                    fmt_cents_fr(credit_minor),
+                    fmt_cents_fr(diff_minor),
                 ]
             )
         )
@@ -173,9 +173,9 @@ def unbalanced_journals_export(
                 [
                     _fmt_csv_val(r.jnl or ""),
                     str(r.count or 0),
-                    fmt_cents(debit_minor),
-                    fmt_cents(credit_minor),
-                    fmt_cents(diff),
+                    fmt_cents_fr(debit_minor),
+                    fmt_cents_fr(credit_minor),
+                    fmt_cents_fr(diff),
                 ]
             )
         )
