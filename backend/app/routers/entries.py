@@ -5,7 +5,7 @@ from datetime import date
 from typing import Optional, Tuple
 import base64, json, csv, io
 
-from ..helpers import fmt_cents
+from ..helpers import fmt_cents_fr
 from ..database import get_db
 from ..models import Entry, Account
 from ..schemas import EntriesPage, EntryOut, PageInfo
@@ -315,9 +315,9 @@ def export_entries_csv(
         writer.writerow([
             _id, _exo, (_date.isoformat() if _date else ""),
             _jnl or "", _piece or "", _acc_id, _accnum or "", _acclib or "", (_lib or "").replace("\n", " "),
-            fmt_cents(_debit_minor or 0), fmt_cents(_credit_minor or 0),
+            fmt_cents_fr(_debit_minor or 0), fmt_cents_fr(_credit_minor or 0),
             (_pdate.isoformat() if _pdate else ""), (_vdate.isoformat() if _vdate else ""),
-            (fmt_cents(_montant_minor) if _montant_minor is not None else ""),
+            (fmt_cents_fr(_montant_minor) if _montant_minor is not None else ""),
             _idev or "",
         ])
 

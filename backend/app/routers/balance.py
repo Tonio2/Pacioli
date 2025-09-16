@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 
-from ..helpers import fmt_cents
+from ..helpers import fmt_cents_fr
 from ..schemas import BalanceResponse
 from ..database import get_db
 from ..models import Entry, Account
@@ -97,7 +97,7 @@ def export_balance_txt(
         acclib = (r.acclib or "").replace("\t", " ").replace("\n", " ")
 
         lines.append(
-            f"{accnum}\t{acclib}\t{fmt_cents(debit_minor)}\t{fmt_cents(credit_minor)}\t{fmt_cents(solde_debit_minor)}\t{fmt_cents(solde_credit_minor)}"
+            f"{accnum}\t{acclib}\t{fmt_cents_fr(debit_minor)}\t{fmt_cents_fr(credit_minor)}\t{fmt_cents_fr(solde_debit_minor)}\t{fmt_cents_fr(solde_credit_minor)}"
         )
 
     content = "\n".join(lines) + ("\n" if lines else "")

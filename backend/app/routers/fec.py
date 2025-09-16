@@ -7,7 +7,7 @@ from datetime import date
 import io, zipfile, re
 from collections import defaultdict
 
-from ..helpers import fmt_cents
+from ..helpers import fmt_cents_fec
 from ..database import get_db
 from ..models import Entry, Account, Journal, Exercice
 from ..crud import get_exercice
@@ -118,8 +118,8 @@ def _build_fec_zip(db: Session, exercice_id: int) -> bytes:
 
     if not exercise_balanced:
         warnings.append(
-            f"Déséquilibre exercice: total débit={fmt_cents(sum_minor_ex_debit)}, total crédit={fmt_cents(sum_minor_ex_credit)}, "
-            f"diff={fmt_cents(sum_minor_ex_debit - sum_minor_ex_credit)}"
+            f"Déséquilibre exercice: total débit={fmt_cents_fec(sum_minor_ex_debit)}, total crédit={fmt_cents_fec(sum_minor_ex_credit)}, "
+            f"diff={fmt_cents_fec(sum_minor_ex_debit - sum_minor_ex_credit)}"
         )
 
     # Limiter l’énumération pour garder un rapport lisible (ex: 200 premières pièces déséquilibrées)
@@ -127,7 +127,7 @@ def _build_fec_zip(db: Session, exercice_id: int) -> bytes:
     if unbalanced_pieces:
         warnings.append(f"{len(unbalanced_pieces)} pièce(s) déséquilibrée(s) (débit≠crédit).")
         for i, (jnl, pref, cnt, d, c, diff) in enumerate(unbalanced_pieces[:MAX_LIST], start=1):
-            warnings.append(f"  - {jnl}/{pref} (lignes={cnt}) : débit={fmt_cents(d)} crédit={fmt_cents(c)} diff={fmt_cents(diff)}")
+            warnings.append(f"  - {jnl}/{pref} (lignes={cnt}) : débit={fmt_cents_fec(d)} crédit={fmt_cents_fec(c)} diff={fmt_cents_fec(diff)}")
         if len(unbalanced_pieces) > MAX_LIST:
             warnings.append(f"  ... ({len(unbalanced_pieces)-MAX_LIST} autres non listées)")
 
@@ -165,7 +165,7 @@ def _build_fec_zip(db: Session, exercice_id: int) -> bytes:
             idevise_txt = idev
             if montant_minor is None:
                 warnings.append(f"i_devise={idev} mais montant devise manquant pour pièce {jnl}/{piece_ref}")
-            montantdevise_txt = fmt_cents(montant_minor) if montant_minor is not None else ""
+            montantdevise_txt = fmt_cents_fec(montant_minor) if montant_minor is not None else ""
 
         # Sanitization / défauts
         journal_code = _sanitize_text(jnl)
@@ -183,7 +183,7 @@ def _build_fec_zip(db: Session, exercice_id: int) -> bytes:
         if PIPE in ecr_lib:
             warnings.append(f"'|' détecté dans EcritureLib pour {jnl}/{piece_ref_s}")
         if piece_ref_s == "NC":
-            warnings.append(f"PieceRef absente pour {jnl}; {compte_num}; {compte_lib}; {ecr_lib}; {fmt_cents(debit_minor)}; {fmt_cents(credit_minor)}")
+            warnings.append(f"PieceRef absente pour {jnl}; {compte_num}; {compte_lib}; {ecr_lib}; {fmt_cents_fec(debit_minor)}; {fmt_cents_fec(credit_minor)}")
 
         # Build enregistrement (sans EcritureNum)
         rec = {
@@ -198,8 +198,8 @@ def _build_fec_zip(db: Session, exercice_id: int) -> bytes:
             "PieceRef": piece_ref_s,
             "PieceDate": _yyyymmdd(piece_date_use),
             "EcritureLib": ecr_lib,
-            "Debit": fmt_cents(debit_minor),
-            "Credit": fmt_cents(credit_minor),
+            "Debit": fmt_cents_fec(debit_minor),
+            "Credit": fmt_cents_fec(credit_minor),
             "EcritureLet": "",
             "DateLet": "",
             "ValidDate": _yyyymmdd(valid_date_use),
