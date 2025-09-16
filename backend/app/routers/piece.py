@@ -1,11 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import func, select, delete
-from decimal import Decimal
+from sqlalchemy import func, select
 from ..database import get_db
 from ..models import Entry, HistoryEvent, Account, JournalSequence
 from ..schemas import PieceCommitRequest, PieceCommitResponse, PieceGetResponse
-from ..validators import ensure_batch_balanced, ensure_dates_in_exercice
+from ..validators import ensure_batch_balanced_minor, ensure_dates_in_exercice, check_one_side
 from ..crud import list_unbalanced_pieces, get_exercice, find_or_create_account
 
 router = APIRouter(prefix="/api", tags=["piece"])
@@ -61,8 +60,8 @@ def get_piece(exercice_id: int, journal: str, piece_ref: str, db: Session = Depe
             "accnum": r.account.accnum if r.account else "",
             "acclib": r.account.acclib if r.account else "",
             "lib": r.lib,
-            "debit": r.debit or Decimal(0),
-            "credit": r.credit or Decimal(0),
+            "debit_minor": r.debit_minor or 0,
+            "credit_minor": r.credit_minor or 0,
         }
         for r in rows
     ]}
@@ -86,27 +85,32 @@ def commit_piece(req: PieceCommitRequest, db: Session = Depends(get_db)):
         )
     ).scalars().all()}
 
+
     for ch in req.changes:
         if ch.op == "add":
             if ch.date is None or ch.accnum is None or ch.lib is None:
                 raise HTTPException(400, "add: date, accnum, lib requis")
-            d = {"date": ch.date, "debit": ch.debit or 0, "credit": ch.credit or 0}
-            delta_rows.append({"date": ch.date, "debit": ch.debit or 0, "credit": ch.credit or 0})
+            check_one_side(ch.debit_minor, ch.credit_minor)
+            delta_rows.append({"date": ch.date, "debit_minor": ch.debit_minor or 0, "credit_minor": ch.credit_minor or 0})
             to_add.append(ch)
         elif ch.op == "modify":
             if not ch.entry_id or ch.entry_id not in existing:
                 raise HTTPException(400, "modify: entry_id invalide")
             old = existing[ch.entry_id]
             new_date = ch.date or old.date
-            new_debit = Decimal(ch.debit) if ch.debit is not None else old.debit
-            new_credit = Decimal(ch.credit) if ch.credit is not None else old.credit
-            delta_rows.append({"date": new_date, "debit": new_debit - old.debit, "credit": new_credit - old.credit})
+            new_debit_minor = ch.debit_minor if ch.debit_minor is not None else old.debit_minor
+            new_credit_minor = ch.credit_minor if ch.credit_minor is not None else old.credit_minor
+            delta_rows.append({
+                "date": new_date,
+                "debit_minor": new_debit_minor - old.debit_minor,
+                "credit_minor": new_credit_minor - old.credit_minor
+            })
             to_mod.append(ch)
         elif ch.op == "delete":
             if not ch.entry_id or ch.entry_id not in existing:
                 raise HTTPException(400, "delete: entry_id invalide")
             old = existing[ch.entry_id]
-            delta_rows.append({"date": old.date, "debit": Decimal("0") - old.debit, "credit": Decimal("0") - old.credit})
+            delta_rows.append({"date": old.date, "debit_minor": -old.debit_minor, "credit_minor": -old.credit_minor})
             to_del.append(ch)
         else:
             raise HTTPException(400, "op inconnue")
@@ -115,7 +119,7 @@ def commit_piece(req: PieceCommitRequest, db: Session = Depends(get_db)):
         [r for r in ([{"date": ch.date} for ch in to_add if ch.date] + [{"date": (ch.date or existing[ch.entry_id].date)} for ch in to_mod])],
         ex.date_start, ex.date_end
     )
-    ensure_batch_balanced(delta_rows)
+    ensure_batch_balanced_minor(delta_rows)
 
     added = modified = deleted = 0
     try:
@@ -134,8 +138,8 @@ def commit_piece(req: PieceCommitRequest, db: Session = Depends(get_db)):
                 piece_ref=req.piece_ref,
                 account_id=acc.id,
                 lib=ch.lib,
-                debit=Decimal(ch.debit or 0),
-                credit=Decimal(ch.credit or 0),
+                debit_minor=ch.debit_minor or 0,
+                credit_minor=ch.credit_minor or 0,
                 piece_date=ch.date,
                 valid_date=ch.date
             )
@@ -156,10 +160,10 @@ def commit_piece(req: PieceCommitRequest, db: Session = Depends(get_db)):
                 e.account_id = acc.id
             if ch.lib is not None:
                 e.lib = ch.lib
-            if ch.debit is not None:
-                e.debit = Decimal(ch.debit)
-            if ch.credit is not None:
-                e.credit = Decimal(ch.credit)
+            if ch.debit_minor is not None:
+                e.debit_minor = ch.debit_minor
+            if ch.credit_minor is not None:
+                e.credit_minor = ch.credit_minor
             modified += 1
 
         # Dels

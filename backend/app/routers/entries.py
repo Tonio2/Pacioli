@@ -1,11 +1,11 @@
-from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func, and_, or_, literal_column
+from sqlalchemy import select, and_, or_
 from datetime import date
 from typing import Optional, Tuple
 import base64, json, csv, io
 
+from ..helpers import fmt_cents
 from ..database import get_db
 from ..models import Entry, Account
 from ..schemas import EntriesPage, EntryOut, PageInfo
@@ -29,8 +29,8 @@ def _filters_signature(
     compte: Optional[str],
     min_date: Optional[str],
     max_date: Optional[str],
-    min_amt: Optional[float],
-    max_amt: Optional[float],
+    min_amt: Optional[int],
+    max_amt: Optional[int],
     search: Optional[str],
 ) -> dict:
     # Normaliser pour comparaison stricte
@@ -41,8 +41,8 @@ def _filters_signature(
         "compte": compte or None,
         "min_date": min_date or None,
         "max_date": max_date or None,
-        "min_amt": None if min_amt is None else float(min_amt),
-        "max_amt": None if max_amt is None else float(max_amt),
+        "min_amt": min_amt or None,
+        "max_amt": max_amt or None,
         "search": (search or None),
     }
 
@@ -72,9 +72,9 @@ def _primary_expr(key: str):
     if key == "accnum":
         return Account.accnum
     if key == "debit":
-        return Entry.debit
+        return Entry.debit_minor
     if key == "credit":
-        return Entry.credit
+        return Entry.credit_minor
     return Entry.date
 
 def _cursor_predicate(primary_col, desc: bool, after_cursor: Optional[dict], before_cursor: Optional[dict]):
@@ -94,7 +94,7 @@ def _cursor_predicate(primary_col, desc: bool, after_cursor: Optional[dict], bef
         return or_(op_main, op_eq)
     return None
 
-def _apply_filters(q, exercice_id, journal, piece_ref, compte, min_date, max_date, min_amt, max_amt, search, join_account: bool):
+def _apply_filters(q, exercice_id, journal, piece_ref, compte, min_date, max_date, min_amt_minor, max_amt_minor, search, join_account: bool):
     q = q.where(Entry.exercice_id == exercice_id)
     if journal:
         q = q.where(Entry.jnl == journal)
@@ -104,10 +104,10 @@ def _apply_filters(q, exercice_id, journal, piece_ref, compte, min_date, max_dat
         q = q.where(Entry.date >= _parse_date(min_date))
     if max_date:
         q = q.where(Entry.date <= _parse_date(max_date))
-    if min_amt is not None:
-        q = q.where((Entry.debit - Entry.credit) >= Decimal(str(min_amt)))
-    if max_amt is not None:
-        q = q.where((Entry.debit - Entry.credit) <= Decimal(str(max_amt)))
+    if min_amt_minor is not None:
+        q = q.where((Entry.debit_minor - Entry.credit_minor) >= min_amt_minor)
+    if max_amt_minor is not None:
+        q = q.where((Entry.debit_minor - Entry.credit_minor) <= max_amt_minor)
     if search:
         like = f"%{search}%"
         q = q.where(Entry.lib.ilike(like))
@@ -124,8 +124,8 @@ def list_entries_keyset(
     piece_ref: Optional[str] = None,
     min_date: Optional[str] = None,
     max_date: Optional[str] = None,
-    min_amt: Optional[float] = None,
-    max_amt: Optional[float] = None,
+    min_amt_minor: Optional[int] = None,
+    max_amt_minor: Optional[int] = None,
     search: Optional[str] = None,
     sort: Optional[str] = "date,id",
     page_size: int = Query(100, ge=1, le=500),
@@ -152,12 +152,12 @@ def list_entries_keyset(
         # pour récupérer quand même accnum/acclib sans forcer le JOIN dans SQLite, on joint quand même (léger)
         q = q.join(Account, Account.id == Entry.account_id)
 
-    q = _apply_filters(q, exercice_id, journal, piece_ref, compte, min_date, max_date, min_amt, max_amt, search, join_account)
+    q = _apply_filters(q, exercice_id, journal, piece_ref, compte, min_date, max_date, min_amt_minor, max_amt_minor, search, join_account)
 
     primary_col = _primary_expr(key)
 
     # Vérifier/valider token si présent
-    filt_sig = _filters_signature(exercice_id, journal, piece_ref, compte, min_date, max_date, min_amt, max_amt, search)
+    filt_sig = _filters_signature(exercice_id, journal, piece_ref, compte, min_date, max_date, min_amt_minor, max_amt_minor, search)
     after_cursor = before_cursor = None
     if after:
         c = _decode_token(after)
@@ -205,8 +205,8 @@ def list_entries_keyset(
             accnum=accnum or "",
             acclib=acclib or "",
             lib=e.lib,
-            debit=e.debit,
-            credit=e.credit,
+            debit_minor=e.debit_minor,
+            credit_minor=e.credit_minor,
         ))
 
     # next/prev tokens
@@ -216,8 +216,8 @@ def list_entries_keyset(
         if key == "jnl": return e.jnl
         if key == "piece_ref": return e.piece_ref
         if key == "accnum": return accnum_val or ""
-        if key == "debit": return float(e.debit or 0)
-        if key == "credit": return float(e.credit or 0)
+        if key == "debit": return e.debit_minor or 0
+        if key == "credit": return e.credit_minor or 0
         return e.date.isoformat()
 
     next_token = prev_token = None
@@ -267,8 +267,8 @@ def export_entries_csv(
     piece_ref: Optional[str] = None,
     min_date: Optional[str] = None,
     max_date: Optional[str] = None,
-    min_amt: Optional[float] = None,
-    max_amt: Optional[float] = None,
+    min_amt_minor: Optional[int] = None,
+    max_amt_minor: Optional[int] = None,
     search: Optional[str] = None,
     sort: Optional[str] = "date,id",
     db: Session = Depends(get_db),
@@ -285,15 +285,15 @@ def export_entries_csv(
         Account.accnum.label("accnum"),
         Account.acclib.label("acclib"),
         Entry.lib,
-        Entry.debit,
-        Entry.credit,
+        Entry.debit_minor,
+        Entry.credit_minor,
         Entry.piece_date,
         Entry.valid_date,
-        Entry.montant,
+        Entry.montant_minor,
         Entry.i_devise,
     ).join(Account, Account.id == Entry.account_id)
 
-    q = _apply_filters(q, exercice_id, journal, piece_ref, compte, min_date, max_date, min_amt, max_amt, search, True)
+    q = _apply_filters(q, exercice_id, journal, piece_ref, compte, min_date, max_date, min_amt_minor, max_amt_minor, search, True)
 
     primary_col = _primary_expr(key)
     order_cols = [primary_col.desc() if desc else primary_col.asc(), Entry.id.asc()]
@@ -310,14 +310,14 @@ def export_entries_csv(
     for r in rows:
         (
             _id, _exo, _date, _jnl, _piece, _acc_id, _accnum, _acclib, _lib,
-            _debit, _credit, _pdate, _vdate, _montant, _idev
+            _debit_minor, _credit_minor, _pdate, _vdate, _montant_minor, _idev
         ) = r
         writer.writerow([
             _id, _exo, (_date.isoformat() if _date else ""),
             _jnl or "", _piece or "", _acc_id, _accnum or "", _acclib or "", (_lib or "").replace("\n", " "),
-            f"{Decimal(_debit or 0):.2f}".replace(".", ","), f"{Decimal(_credit or 0):.2f}".replace(".", ","),
+            fmt_cents(_debit_minor or 0), fmt_cents(_credit_minor or 0),
             (_pdate.isoformat() if _pdate else ""), (_vdate.isoformat() if _vdate else ""),
-            (f"{Decimal(_montant):.2f}".replace(".", ",") if _montant is not None else ""),
+            (fmt_cents(_montant_minor) if _montant_minor is not None else ""),
             _idev or "",
         ])
 

@@ -5,11 +5,12 @@ import { type ColumnDef, createColumnHelper, flexRender } from '@tanstack/react-
 import { useApp } from '../context/AppContext'
 import { useSearchParams, Link } from 'react-router-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { fmtCents } from '../modules/utils/amount'
 
 type Row = {
     id: number; date: string; jnl: string; piece_ref: string;
     account_id: number; accnum: string; acclib: string;
-    lib: string; debit: number; credit: number
+    lib: string; debit_minor: number; credit_minor: number
 }
 
 type Page = { rows: Row[]; page_info: { next?: string | null; prev?: string | null; has_next: boolean; has_prev: boolean } }
@@ -148,8 +149,8 @@ export default function Entries() {
         }),
         ch.accessor('accnum', { header: () => mkSortableHeader('Compte', 'accnum') }),
         ch.accessor('lib', { header: 'Libellé' }),
-        ch.accessor('debit', { header: () => mkSortableHeader('Débit', 'debit') }),
-        ch.accessor('credit', { header: () => mkSortableHeader('Crédit', 'credit') }),
+        ch.accessor('debit_minor', { header: () => mkSortableHeader('Débit', 'debit_minor') }),
+        ch.accessor('credit_minor', { header: () => mkSortableHeader('Crédit', 'credit_minor') }),
     ]
 
     // Export CSV
@@ -188,13 +189,6 @@ export default function Entries() {
         ]),
         []
     )
-
-    // format monétaire FR : "1 234,56" (espace insécable étroit + virgule)
-    const nf = useMemo(
-        () => new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-        []
-    )
-    const fmt = (n: number) => nf.format(n)
 
 
     return (
@@ -288,8 +282,8 @@ export default function Entries() {
                                             </td>
                                             <td className="border px-2 py-1">{row.accnum}</td>
                                             <td className="border px-2 py-1">{row.lib}</td>
-                                            <td className="border px-2 py-1 text-right">{fmt(row.debit)}</td>
-                                            <td className="border px-2 py-1 text-right">{fmt(row.credit)}</td>
+                                            <td className="border px-2 py-1 text-right">{fmtCents(row.debit_minor)}</td>
+                                            <td className="border px-2 py-1 text-right">{fmtCents(row.credit_minor)}</td>
                                         </tr>
                                     )
                                 }),

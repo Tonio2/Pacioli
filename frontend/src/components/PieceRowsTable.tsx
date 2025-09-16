@@ -1,6 +1,6 @@
 // src/components/PieceRowsTable.tsx
 import { useEffect, useMemo, useState } from "react";
-import { isValidAmount } from "../modules/pieces/amount";
+import { isValidAmount } from "../modules/utils/amount";
 import type { Row, SuggestItem } from "../modules/pieces/types";
 
 type Props = {

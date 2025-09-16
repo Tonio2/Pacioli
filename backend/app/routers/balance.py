@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 
+from ..helpers import fmt_cents
 from ..schemas import BalanceResponse
 from ..database import get_db
 from ..models import Entry, Account
@@ -15,8 +16,8 @@ def balance(exercice_id: int = Query(...), db: Session = Depends(get_db)):
     sub = (
         select(
             Entry.account_id.label("account_id"),
-            func.sum(Entry.debit).label("debit"),
-            func.sum(Entry.credit).label("credit"),
+            func.sum(Entry.debit_minor).label("debit_minor"),
+            func.sum(Entry.credit_minor).label("credit_minor"),
             func.count().label("count"),
         )
         .where(Entry.exercice_id == exercice_id)
@@ -28,9 +29,9 @@ def balance(exercice_id: int = Query(...), db: Session = Depends(get_db)):
         select(
             Account.accnum.label("accnum"),
             func.coalesce(Account.acclib, Account.accnum).label("acclib"),
-            sub.c.debit,
-            sub.c.credit,
-            (sub.c.debit - sub.c.credit).label("solde"),
+            sub.c.debit_minor,
+            sub.c.credit_minor,
+            (sub.c.debit_minor - sub.c.credit_minor).label("solde_minor"),
             sub.c.count,
         )
         .join(Account, Account.id == sub.c.account_id)
@@ -42,9 +43,9 @@ def balance(exercice_id: int = Query(...), db: Session = Depends(get_db)):
         {
             "accnum": r.accnum,
             "acclib": r.acclib,
-            "debit": r.debit or Decimal(0),
-            "credit": r.credit or Decimal(0),
-            "solde": r.solde or Decimal(0),
+            "debit_minor": r.debit_minor or 0,
+            "credit_minor": r.credit_minor or 0,
+            "solde_minor": r.solde_minor or 0,
             "count": r.count,
         }
         for r in rows
@@ -59,8 +60,8 @@ def export_balance_txt(
     sub = (
         select(
             Entry.account_id.label("account_id"),
-            func.sum(Entry.debit).label("debit"),
-            func.sum(Entry.credit).label("credit"),
+            func.sum(Entry.debit_minor).label("debit_minor"),
+            func.sum(Entry.credit_minor).label("credit_minor"),
         )
         .where(Entry.exercice_id == exercice_id)
         .group_by(Entry.account_id)
@@ -71,8 +72,8 @@ def export_balance_txt(
         select(
             Account.accnum.label("accnum"),
             func.coalesce(Account.acclib, Account.accnum).label("acclib"),
-            sub.c.debit,
-            sub.c.credit,
+            sub.c.debit_minor,
+            sub.c.credit_minor,
         )
         .join(Account, Account.id == sub.c.account_id)
         .order_by(Account.accnum)
@@ -80,28 +81,23 @@ def export_balance_txt(
 
     rows = db.execute(q).all()
 
-    def _d(x) -> Decimal:
-        return Decimal(x or 0)
-
-    def fmt(n: Decimal) -> str:
-        return f"{n:.2f}".replace(".", ",")
 
     lines: list[str] = [
         "N° de compte\tIntitulé du compte\tCumul débit\tCumul crédit\tSolde débit\tSolde crédit"
     ]
 
     for r in rows:
-        debit = _d(r.debit)
-        credit = _d(r.credit)
-        solde = debit - credit
-        solde_debit = solde if solde > 0 else Decimal(0)
-        solde_credit = -solde if solde < 0 else Decimal(0)
+        debit_minor = r.debit_minor
+        credit_minor = r.credit_minor
+        solde = debit_minor - credit_minor
+        solde_debit_minor = solde if solde > 0 else 0
+        solde_credit_minor = -solde if solde < 0 else 0
 
         accnum = r.accnum or ""
         acclib = (r.acclib or "").replace("\t", " ").replace("\n", " ")
 
         lines.append(
-            f"{accnum}\t{acclib}\t{fmt(debit)}\t{fmt(credit)}\t{fmt(solde_debit)}\t{fmt(solde_credit)}"
+            f"{accnum}\t{acclib}\t{fmt_cents(debit_minor)}\t{fmt_cents(credit_minor)}\t{fmt_cents(solde_debit_minor)}\t{fmt_cents(solde_credit_minor)}"
         )
 
     content = "\n".join(lines) + ("\n" if lines else "")

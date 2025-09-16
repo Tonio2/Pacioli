@@ -11,6 +11,7 @@ import { useAccountSuggest } from "../modules/pieces/useAccountSuggest";
 import { diffChanges } from "../modules/pieces/diff";
 import type { Row } from "../modules/pieces/types";
 import PieceRowsTable from "../components/PieceRowsTable";
+import { centsToInput } from "../modules/utils/amount";
 
 export default function PiecePage() {
     const { jnl, piece_ref } = useParams();
@@ -45,8 +46,8 @@ export default function PiecePage() {
                     accnum: r.accnum ?? "",
                     acclib: r.acclib ?? "",
                     lib: r.lib ?? "",
-                    debit: r.debit != null ? String(r.debit) : "",
-                    credit: r.credit != null ? String(r.credit) : "",
+                    debit: r.debit_minor != null ? centsToInput(r.debit_minor) : "",
+                    credit: r.credit_minor != null ? centsToInput(r.credit_minor) : "",
                     _accountExists: !!r.accnum,
                 })
             );

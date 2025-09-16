@@ -1,9 +1,8 @@
 import { useMemo } from "react";
-import { isValidAmount, toNumber } from "./amount";
+import { isValidAmount, toCents } from "../utils/amount";
 import type { TotalsInfo } from "./types";
 
 export function useTotals(rows: { debit: string; credit: string; markedDeleted?: boolean }[]): TotalsInfo {
-    const cents = (s: string) => Math.round(toNumber(s) * 100);
 
     return useMemo(() => {
         let d = 0, c = 0, hasErrors = false, bothSides = false;
@@ -11,16 +10,19 @@ export function useTotals(rows: { debit: string; credit: string; markedDeleted?:
         for (const r of rows) {
             if (r.markedDeleted) continue;
 
-            const hasD = r.debit !== "0" && isValidAmount(r.debit);
-            const hasC = r.credit !== "0" && isValidAmount(r.credit);
+            const debit = toCents(r.debit);
+            const credit = toCents(r.credit);
 
-            if (r.debit !== "0" && !hasD) hasErrors = true;
-            if (r.credit !== "0" && !hasC) hasErrors = true;
+            const hasD = debit !== 0 && isValidAmount(r.debit);
+            const hasC = credit !== 0 && isValidAmount(r.credit);
+
+            if (debit !== 0 && !hasD) hasErrors = true;
+            if (credit !== 0 && !hasC) hasErrors = true;
             if (hasD && hasC) bothSides = true;
 
 
-            if (hasD) d += cents(r.debit);
-            if (hasC) c += cents(r.credit);
+            if (hasD) d += debit;
+            if (hasC) c += credit;
         }
 
         const diffCents = d - c;

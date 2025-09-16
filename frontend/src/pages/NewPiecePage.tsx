@@ -7,7 +7,7 @@ import { useApp } from "../context/AppContext";
 import { useTotals } from "../modules/pieces/useTotals";
 import { rowsReducer, makeRow } from "../modules/pieces/rowsReducer";
 import { useAccountSuggest } from "../modules/pieces/useAccountSuggest";
-import { toNumber } from "../modules/pieces/amount";
+import { toCents } from "../modules/utils/amount";
 import PieceRowsTable from "../components/PieceRowsTable";
 
 export default function NewPiecePage() {
@@ -71,8 +71,8 @@ export default function NewPiecePage() {
               accnum: r.accnum,
               acclib: r.acclib,
               lib: r.lib,
-              debit: toNumber(r.debit),
-              credit: toNumber(r.credit),
+              debit: toCents(r.debit),
+              credit: toCents(r.credit),
             })),
         })
       ).data,

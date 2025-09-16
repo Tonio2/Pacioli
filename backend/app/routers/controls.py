@@ -2,16 +2,13 @@
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
-from decimal import Decimal
 
+from ..helpers import fmt_cents
 from ..schemas import UnbalancedJournalListResponse, UnbalancedPieceListResponse
 from ..database import get_db
 from ..models import Entry
 
 router = APIRouter(prefix="/api/controls", tags=["controls"])
-
-def _d(x) -> Decimal:
-    return Decimal(x or 0)
 
 def _fmt_csv_val(v: str) -> str:
     # CSV simple ; si tu préfères le TSV, remplace ';' par '\t'
@@ -32,12 +29,12 @@ def unbalanced_pieces(
             Entry.jnl.label("jnl"),
             Entry.piece_ref.label("piece_ref"),
             func.count().label("count"),
-            func.sum(Entry.debit).label("debit"),
-            func.sum(Entry.credit).label("credit"),
+            func.sum(Entry.debit_minor).label("debit_minor"),
+            func.sum(Entry.credit_minor).label("credit_minor"),
         )
         .where(Entry.exercice_id == exercice_id)
         .group_by(Entry.jnl, Entry.piece_ref)
-        .having(func.coalesce(func.sum(Entry.debit), 0) != func.coalesce(func.sum(Entry.credit), 0))
+        .having(func.coalesce(func.sum(Entry.debit_minor), 0) != func.coalesce(func.sum(Entry.credit_minor), 0))
         .subquery()
     )
 
@@ -48,8 +45,8 @@ def unbalanced_pieces(
             sub.c.jnl,
             sub.c.piece_ref,
             sub.c.count,
-            sub.c.debit,
-            sub.c.credit,
+            sub.c.debit_minor,
+            sub.c.credit_minor,
         )
         .order_by(sub.c.jnl, sub.c.piece_ref)
         .offset((page - 1) * page_size)
@@ -59,17 +56,17 @@ def unbalanced_pieces(
 
     items = []
     for r in rows:
-        debit = Decimal(r.debit or 0)
-        credit = Decimal(r.credit or 0)
-        diff = debit - credit
-        if diff != 0:   # <— garde seulement les vrais déséquilibres
+        debit_minor = r.debit_minor or 0
+        credit_minor = r.credit_minor or 0
+        diff_minor = debit_minor - credit_minor
+        if diff_minor != 0:
             items.append({
                 "jnl": r.jnl,
                 "piece_ref": r.piece_ref,
                 "count": r.count or 0,
-                "debit": debit,
-                "credit": credit,
-                "diff": diff,
+                "debit_minor": debit_minor,
+                "credit_minor": credit_minor,
+                "diff_minor": diff_minor,
             })
 
     return {"items": items, "total": int(total)}
@@ -84,35 +81,31 @@ def unbalanced_pieces_export(
             Entry.jnl.label("jnl"),
             Entry.piece_ref.label("piece_ref"),
             func.count().label("count"),
-            func.sum(Entry.debit).label("debit"),
-            func.sum(Entry.credit).label("credit"),
+            func.sum(Entry.debit_minor).label("debit_minor"),
+            func.sum(Entry.credit_minor).label("credit_minor"),
         )
         .where(Entry.exercice_id == exercice_id)
         .group_by(Entry.jnl, Entry.piece_ref)
-        .having(func.coalesce(func.sum(Entry.debit), 0) != func.coalesce(func.sum(Entry.credit), 0))
+        .having(func.coalesce(func.sum(Entry.debit_minor), 0) != func.coalesce(func.sum(Entry.credit_minor), 0))
         .order_by(Entry.jnl, Entry.piece_ref)
     )
 
     rows = db.execute(sub).all()
 
-    def fmt(n: Decimal) -> str:
-        # format FR ; change si besoin
-        return f"{_d(n):.2f}".replace(".", ",")
-
     lines = ["journal;piece_ref;nb_ecritures;debit;credit;diff"]
     for r in rows:
-        debit = _d(r.debit)
-        credit = _d(r.credit)
-        diff = debit - credit
+        debit_minor = r.debit_minor
+        credit_minor = r.credit_minor
+        diff_minor = debit_minor - credit_minor
         lines.append(
             ";".join(
                 [
                     _fmt_csv_val(r.jnl or ""),
                     _fmt_csv_val(r.piece_ref or ""),
                     str(r.count or 0),
-                    fmt(debit),
-                    fmt(credit),
-                    fmt(diff),
+                    fmt_cents(debit_minor),
+                    fmt_cents(credit_minor),
+                    fmt_cents(diff_minor),
                 ]
             )
         )
@@ -133,25 +126,22 @@ def unbalanced_journals(
         select(
             Entry.jnl.label("jnl"),
             func.count().label("count"),
-            func.sum(Entry.debit).label("debit"),
-            func.sum(Entry.credit).label("credit"),
+            func.sum(Entry.debit_minor).label("debit_minor"),
+            func.sum(Entry.credit_minor).label("credit_minor"),
         )
         .where(Entry.exercice_id == exercice_id)
         .group_by(Entry.jnl)
-        .having(func.coalesce(func.sum(Entry.debit), 0) != func.coalesce(func.sum(Entry.credit), 0))
+        .having(func.coalesce(func.sum(Entry.debit_minor), 0) != func.coalesce(func.sum(Entry.credit_minor), 0))
         .order_by(Entry.jnl)
     )
     rows = db.execute(sub).all()
-    items = [
-        {
-            "jnl": r.jnl,
-            "count": r.count or 0,
-            "debit": Decimal(r.debit or 0),
-            "credit": Decimal(r.credit or 0),
-            "diff": Decimal(r.debit or 0) - Decimal(r.credit or 0),
-        }
-        for r in rows
-    ]
+    items = [{
+        "jnl": r.jnl,
+        "count": r.count or 0,
+        "debit_minor": r.debit_minor or 0,
+        "credit_minor": r.credit_minor or 0,
+        "diff_minor": (r.debit_minor or 0) - (r.credit_minor or 0),
+    } for r in rows]
     return {"items": items, "total": len(items)}
 
 @router.get("/unbalanced-journals/export")
@@ -163,32 +153,29 @@ def unbalanced_journals_export(
         select(
             Entry.jnl.label("jnl"),
             func.count().label("count"),
-            func.sum(Entry.debit).label("debit"),
-            func.sum(Entry.credit).label("credit"),
+            func.sum(Entry.debit_minor).label("debit_minor"),
+            func.sum(Entry.credit_minor).label("credit_minor"),
         )
         .where(Entry.exercice_id == exercice_id)
         .group_by(Entry.jnl)
-        .having(func.coalesce(func.sum(Entry.debit), 0) != func.coalesce(func.sum(Entry.credit), 0))
+        .having(func.coalesce(func.sum(Entry.debit_minor), 0) != func.coalesce(func.sum(Entry.credit_minor), 0))
         .order_by(Entry.jnl)
     )
     rows = db.execute(sub).all()
 
-    def fmt(n: Decimal) -> str:
-        return f"{_d(n):.2f}".replace(".", ",")
-
     lines = ["journal;nb_ecritures;debit;credit;diff"]
     for r in rows:
-        debit = _d(r.debit)
-        credit = _d(r.credit)
-        diff = debit - credit
+        debit_minor = r.debit_minor
+        credit_minor = r.credit_minor
+        diff = debit_minor - credit_minor
         lines.append(
             ";".join(
                 [
                     _fmt_csv_val(r.jnl or ""),
                     str(r.count or 0),
-                    fmt(debit),
-                    fmt(credit),
-                    fmt(diff),
+                    fmt_cents(debit_minor),
+                    fmt_cents(credit_minor),
+                    fmt_cents(diff),
                 ]
             )
         )

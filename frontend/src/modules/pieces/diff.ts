@@ -1,5 +1,4 @@
-// src/modules/pieces/diff.ts
-import { toNumber } from "./amount";
+import { toCents } from "../utils/amount";
 import type { Row } from "./types";
 
 type AddChange = {
@@ -53,8 +52,8 @@ export function diffChanges(initial: Row[], current: Row[]): Change[] {
         accnum: curr.accnum,
         acclib: curr.acclib, // utilisé seulement si on crée le compte
         lib: curr.lib,
-        debit: toNumber(curr.debit),
-        credit: toNumber(curr.credit),
+        debit: toCents(curr.debit),
+        credit: toCents(curr.credit),
       });
       continue;
     }
@@ -69,8 +68,8 @@ export function diffChanges(initial: Row[], current: Row[]): Change[] {
         accnum: curr.accnum,
         acclib: curr.acclib,
         lib: curr.lib,
-        debit: toNumber(curr.debit),
-        credit: toNumber(curr.credit),
+        debit: toCents(curr.debit),
+        credit: toCents(curr.credit),
       });
       continue;
     }
@@ -83,8 +82,8 @@ export function diffChanges(initial: Row[], current: Row[]): Change[] {
         accnum: curr.accnum,
         acclib: curr.acclib, // ignoré si le compte existe déjà côté serveur
         lib: curr.lib,
-        debit: toNumber(curr.debit),
-        credit: toNumber(curr.credit),
+        debit: toCents(curr.debit),
+        credit: toCents(curr.credit),
       });
     }
   }
@@ -113,7 +112,7 @@ function isRowModified(a: Row, b: Row): boolean {
     (a.accnum || "") !== (b.accnum || "") ||
     (a.acclib || "") !== (b.acclib || "") ||
     (a.lib || "") !== (b.lib || "") ||
-    toNumber(a.debit || "") !== toNumber(b.debit || "") ||
-    toNumber(a.credit || "") !== toNumber(b.credit || "")
+    toCents(a.debit || "") !== toCents(b.debit || "") ||
+    toCents(a.credit || "") !== toCents(b.credit || "")
   );
 }

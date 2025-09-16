@@ -1,6 +1,5 @@
 import datetime
-from decimal import Decimal
-from sqlalchemy import Integer, String, Date, Numeric, ForeignKey, UniqueConstraint, DateTime, func
+from sqlalchemy import Integer, String, Date, ForeignKey, UniqueConstraint, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
@@ -83,12 +82,12 @@ class Entry(Base):
     piece_ref: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False, index=True)
     lib: Mapped[str] = mapped_column(String(255), nullable=False)
-    debit: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
-    credit: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    debit_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    credit_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     piece_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
     valid_date: Mapped[datetime.date] = mapped_column(Date, nullable=False, index=True)
-    montant: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=True)
+    montant_minor: Mapped[int] = mapped_column(Integer, nullable=True)
     i_devise: Mapped[str] = mapped_column(String(32), nullable=True)
 
     exercice: Mapped["Exercice"] = relationship(back_populates="entries")

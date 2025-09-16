@@ -1,7 +1,6 @@
 from pydantic import BaseModel, model_validator, field_serializer
 from typing import Optional, List, Literal
 import datetime
-from decimal import Decimal
 
 # ----------- Entrées -----------
 class EntryOut(BaseModel):
@@ -13,12 +12,8 @@ class EntryOut(BaseModel):
     accnum: str
     acclib: str
     lib: str
-    debit: Decimal
-    credit: Decimal
-
-    @field_serializer("debit", "credit", mode="plain")
-    def _dec_as_float(self, v: Decimal) -> float:
-        return float(v or 0)
+    debit_minor: int
+    credit_minor: int
 
     class Config:
         from_attributes = True
@@ -33,14 +28,11 @@ class EntriesResponse(BaseModel):
 class BalanceRow(BaseModel):
     accnum: str
     acclib: str
-    debit: Decimal
-    credit: Decimal
-    solde: Decimal
+    debit_minor: int
+    credit_minor: int
+    solde_minor: int
     count: int
 
-    @field_serializer("debit", "credit", "solde", mode="plain")
-    def _dec_as_float(self, v: Decimal) -> float:
-        return float(v or 0)
 
 
 class BalanceResponse(BaseModel):
@@ -58,12 +50,9 @@ class PieceEntryOut(BaseModel):
     accnum: str
     acclib: str
     lib: str
-    debit: Decimal
-    credit: Decimal
+    debit_minor: int
+    credit_minor: int
 
-    @field_serializer("debit", "credit", mode="plain")
-    def _dec_as_float(self, v: Decimal) -> float:
-        return float(v or 0)
 
 
 class PieceGetResponse(BaseModel):
@@ -77,8 +66,8 @@ class PieceChange(BaseModel):
     accnum: Optional[str] = None
     acclib: Optional[str] = None
     lib: Optional[str] = None
-    debit: Optional[Decimal] = None
-    credit: Optional[Decimal] = None
+    debit_minor: Optional[int] = None
+    credit_minor: Optional[int] = None
 
 
 class PieceCommitRequest(BaseModel):
@@ -101,13 +90,10 @@ class UnbalancedPieceItem(BaseModel):
     jnl: str
     piece_ref: str
     count: int
-    debit: Decimal
-    credit: Decimal
-    diff: Decimal
+    debit_minor: int
+    credit_minor: int
+    diff_minor: int
 
-    @field_serializer("debit", "credit", "diff", mode="plain")
-    def _dec_as_float(self, v: Decimal) -> float:
-        return float(v or 0)
 
 
 class UnbalancedPieceListResponse(BaseModel):
@@ -118,13 +104,10 @@ class UnbalancedPieceListResponse(BaseModel):
 class UnbalancedJournalItem(BaseModel):
     jnl: str
     count: int
-    debit: Decimal
-    credit: Decimal
-    diff: Decimal
+    debit_minor: int
+    credit_minor: int
+    diff_minor: int
 
-    @field_serializer("debit", "credit", "diff", mode="plain")
-    def _dec_as_float(self, v: Decimal) -> float:
-        return float(v or 0)
 
 
 class UnbalancedJournalListResponse(BaseModel):

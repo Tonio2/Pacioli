@@ -1,9 +1,6 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func, select, text, and_
+from sqlalchemy import func, select
 from .models import Entry, Account, Journal, Exercice
-from datetime import date
-from decimal import Decimal
-from typing import List, Dict, Tuple
 
 # Helpers
 
@@ -32,16 +29,16 @@ def find_or_create_journal(db: Session, client_id: int, jnl: str, jnl_lib: str |
 def list_unbalanced_pieces(db: Session, exercice_id: int, limit: int = 100):
     q = (
         select(Entry.jnl, Entry.piece_ref,
-               func.sum(Entry.debit).label("td"),
-               func.sum(Entry.credit).label("tc"))
+               func.sum(Entry.debit_minor).label("td"),
+               func.sum(Entry.credit_minor).label("tc"))
         .where(Entry.exercice_id == exercice_id)
         .group_by(Entry.jnl, Entry.piece_ref)
-        .having(func.abs(func.sum(Entry.debit - Entry.credit)) != 0)
-        .order_by(func.abs(func.sum(Entry.debit - Entry.credit)).desc())
+        .having(func.abs(func.sum(Entry.debit_minor - Entry.credit_minor)) != 0)
+        .order_by(func.abs(func.sum(Entry.debit_minor - Entry.credit_minor)).desc())
         .limit(limit)
     )
     return [
-        {"jnl": r.jnl, "piece_ref": r.piece_ref, "total_debit": r.td or 0, "total_credit": r.tc or 0}
+        {"jnl": r.jnl, "piece_ref": r.piece_ref, "total_debit_minor": r.td or 0, "total_credit_minor": r.tc or 0}
         for r in db.execute(q)
     ]
 

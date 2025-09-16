@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from datetime import datetime
 import csv, io, re
 from ..database import get_db
@@ -12,6 +12,10 @@ from ..crud import find_or_create_account, find_or_create_journal, list_unbalanc
 router = APIRouter(prefix="/api/imports", tags=["imports"])
 
 _amount_clean_re = re.compile(r"[\s\u00A0]\s*")
+
+def to_minor(d: Decimal | int | str | float) -> int:
+    d = Decimal(str(d)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return int((d * 100).to_integral_value())
 
 def parse_amount(s: str) -> Decimal:
     s = s.strip()
@@ -143,11 +147,11 @@ async def import_csv(
                 piece_ref=r["piece_ref"],
                 account_id=acc.id,
                 lib=r["lib"],
-                debit=r["debit"],
-                credit=r["credit"],
+                debit_minor=to_minor(r["debit"]),
+                credit_minor=to_minor(r["credit"]),
                 piece_date=r["piece_date"],
                 valid_date=r["valid_date"],
-                montant=r["montant"],
+                montant_minor=to_minor(r["montant"]) if r["montant"] is not None else None,
                 i_devise=r["i_devise"]
             ))
         he = HistoryEvent(
