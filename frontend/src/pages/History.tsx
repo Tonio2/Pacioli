@@ -55,7 +55,7 @@ export default function HistoryPage() {
                 <tbody>
                     {rows.map((r) => (
                         <tr key={r.id} className="odd:bg-white even:bg-gray-50">
-                            <td className="border border-gray-200 px-3 py-2">{new Date(r.created_at).toLocaleString()}</td>
+                            <td className="border border-gray-200 px-3 py-2">{r.created_at}</td>
                             <td className="border border-gray-200 px-3 py-2 whitespace-pre">{r.counts_human}</td>
                             <td className="border border-gray-200 px-3 py-2">
                                 <input
