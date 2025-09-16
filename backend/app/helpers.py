@@ -10,7 +10,6 @@ def fmt_cents_fec(cents: Optional[int]) -> str:
     Ex: 123456 -> '1234,56'
     """
     euros = (Decimal(cents or 0) / Decimal(100)).quantize(Decimal("0.01"))
-    # f"{euros:.2f}" donne '1234.56' -> remplace le point par virgule
     return f"{euros:.2f}".replace(".", ",")
 
 def fmt_cents_fr(cents: Optional[int], with_symbol: bool = True) -> str:

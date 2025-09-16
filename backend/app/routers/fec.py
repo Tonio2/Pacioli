@@ -1,8 +1,7 @@
 # routers/fec.py
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func
-from decimal import Decimal
+from sqlalchemy import select
 from datetime import date
 import io, zipfile, re
 from collections import defaultdict
@@ -90,27 +89,27 @@ def _build_fec_zip(db: Session, exercice_id: int) -> bytes:
         raise HTTPException(404, "Aucune écriture pour cet exercice")
 
     # --- Contrôles équilibre ---
-    sum_minor_ex_debit = 0
-    sum_minor_ex_credit = 0
-    sum_minor_by_piece = defaultdict(lambda: {"debit_minor": 0, "credit_minor": 0, "count": 0})
+    sum_ex_debit_minor = 0
+    sum_ex_credit_minor = 0
+    sum_by_piece = defaultdict(lambda: {"debit_minor": 0, "credit_minor": 0, "count": 0})
 
     for r in rows:
         debit_minor = r.debit_minor or 0
         credit_minor = r.credit_minor or 0
-        sum_minor_ex_debit += debit_minor
-        sum_minor_ex_credit += credit_minor
+        sum_ex_debit_minor += debit_minor
+        sum_ex_credit_minor += credit_minor
         key = (r.jnl, (r.piece_ref or "").strip())
-        sum_minor_by_piece[key]["debit_minor"] += debit_minor
-        sum_minor_by_piece[key]["credit_minor"] += credit_minor
-        sum_minor_by_piece[key]["count"] += 1
+        sum_by_piece[key]["debit_minor"] += debit_minor
+        sum_by_piece[key]["credit_minor"] += credit_minor
+        sum_by_piece[key]["count"] += 1
 
     unbalanced_pieces = []
-    for (jnl, piece_ref), agg in sum_minor_by_piece.items():
+    for (jnl, piece_ref), agg in sum_by_piece.items():
         if agg["debit_minor"] != agg["credit_minor"]:
             diff_minor = (agg["debit_minor"] - agg["credit_minor"])
             unbalanced_pieces.append((jnl, piece_ref, agg["count"], agg["debit_minor"], agg["credit_minor"], diff_minor))
 
-    exercise_balanced = (sum_minor_ex_debit == sum_minor_ex_credit)
+    exercise_balanced = (sum_ex_debit_minor == sum_ex_credit_minor)
 
     # Préparation des enregistrements normalisés et warnings
     records = []
@@ -118,8 +117,8 @@ def _build_fec_zip(db: Session, exercice_id: int) -> bytes:
 
     if not exercise_balanced:
         warnings.append(
-            f"Déséquilibre exercice: total débit={fmt_cents_fec(sum_minor_ex_debit)}, total crédit={fmt_cents_fec(sum_minor_ex_credit)}, "
-            f"diff={fmt_cents_fec(sum_minor_ex_debit - sum_minor_ex_credit)}"
+            f"Déséquilibre exercice: total débit={fmt_cents_fec(sum_ex_debit_minor)}, total crédit={fmt_cents_fec(sum_ex_credit_minor)}, "
+            f"diff={fmt_cents_fec(sum_ex_debit_minor - sum_ex_credit_minor)}"
         )
 
     # Limiter l’énumération pour garder un rapport lisible (ex: 200 premières pièces déséquilibrées)
@@ -165,7 +164,10 @@ def _build_fec_zip(db: Session, exercice_id: int) -> bytes:
             idevise_txt = idev
             if montant_minor is None:
                 warnings.append(f"i_devise={idev} mais montant devise manquant pour pièce {jnl}/{piece_ref}")
-            montantdevise_txt = fmt_cents_fec(montant_minor) if montant_minor is not None else ""
+                montantdevise_txt = ""
+                idevise_txt = ""
+            else:
+                montantdevise_txt = fmt_cents_fec(montant_minor)
 
         # Sanitization / défauts
         journal_code = _sanitize_text(jnl)
