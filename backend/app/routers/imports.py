@@ -5,7 +5,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from datetime import datetime
 import csv, io, re
 from ..database import get_db
-from ..models import Entry, Exercice, HistoryEvent, Account
+from ..models import Entry, HistoryEvent, Account
 from ..validators import ensure_batch_balanced, ensure_dates_in_exercice, ValidationError
 from ..crud import find_or_create_account, find_or_create_journal, list_unbalanced_pieces, get_exercice
 
@@ -59,37 +59,54 @@ async def import_csv(
         _Semi.delimiter = ';'
         dialect = _Semi
     reader = csv.DictReader(io.StringIO(text), dialect=dialect)
+    reader.fieldnames = [(h or "").strip() for h in (reader.fieldnames or [])]
 
     required = {"jnl", "accnum", "acclib", "date", "lib", "pieceRef", "debit", "credit", "pieceDate", "validDate", "montant", "iDevise"}
-    missing = required - set([h.strip() for h in (reader.fieldnames or [])])
+    missing = required - set(reader.fieldnames)
     if missing:
         raise HTTPException(400, f"Colonnes manquantes: {', '.join(sorted(missing))}")
+
+    def cell(row, key):
+        return (row.get(key) or "").strip()
 
     rows = []
     delta_rows = []
 
     for i, row in enumerate(reader, start=2):
         try:
-            jnl = (row["jnl"] or "").strip()
-            accnum = (row["accnum"] or "").strip()
-            acclib = (row["acclib"] or "").strip() or accnum
-            date_obj = parse_date(row["date"])
-            lib = (row["lib"] or "").strip()
-            piece_ref = (row["pieceRef"] or "").strip()
-            debit = parse_amount(row["debit"])
-            credit = parse_amount(row["credit"])
-            piece_date = parse_date(row["pieceDate"]) if row["pieceDate"] else date_obj
-            valid_date = parse_date(row["validDate"]) if row["validDate"] else date_obj
+            jnl = cell(row, "jnl")
+            accnum = cell(row, "accnum")
+            acclib = cell(row, "acclib") or accnum
+            date_obj = parse_date(cell(row, "date"))
+            lib = cell(row, "lib")
+            piece_ref = cell(row, "pieceRef")
+
+            debit = parse_amount(cell(row, "debit") or "0")
+            credit = parse_amount(cell(row, "credit") or "0")
+
+            piece_date_raw = cell(row, "pieceDate")
+            valid_date_raw = cell(row, "validDate")
+            piece_date = parse_date(piece_date_raw) if piece_date_raw else date_obj
+            valid_date = parse_date(valid_date_raw) if valid_date_raw else date_obj
             if jnl == "AN":
                 piece_date = ex.date_start
                 valid_date = ex.date_start
-            montant = parse_amount(row["montant"]) if row["montant"] else None
-            i_devise = row["iDevise"] or None
+
+            montant_raw = cell(row, "montant")
+            montant = parse_amount(montant_raw) if montant_raw else None
+
+            i_devise = cell(row, "iDevise") or None
         except Exception as e:
             raise HTTPException(400, f"Erreur parsing ligne {i}: {e}")
 
-        if (debit > 0 and credit > 0) or (debit == 0 and credit == 0):
+        if debit < 0 or credit < 0:
+            raise HTTPException(400, f"Ligne {i}: montants négatifs interdits")
+
+        if (debit != 0 and credit != 0) or (debit == 0 and credit == 0):
             raise HTTPException(400, f"Ligne {i}: chaque ligne doit avoir soit un débit soit un crédit (exclusif)")
+
+        if piece_ref == "":
+            raise HTTPException(400, f"Ligne {i}: chaque ligne doit avoir un numéro de pièce")
 
         rows.append(
             {
@@ -120,10 +137,11 @@ async def import_csv(
     seen_acc = {}
     seen_jnl = set()
     f = csv.DictReader(io.StringIO(text), dialect=dialect)
+    f.fieldnames = [(h or "").strip() for h in (f.fieldnames or [])]
     for r in f:
-        accnum = (r["accnum"] or "").strip()
-        acclib = (r["acclib"] or "").strip() or accnum
-        jnl = (r["jnl"] or "").strip()
+        accnum = cell(r, "accnum")
+        acclib = cell(r, "acclib") or accnum
+        jnl = cell(r, "jnl")
         if accnum and accnum not in seen_acc:
             # find_or_create ne modifie pas un compte existant
             find_or_create_account(db, client_id, accnum, acclib)
