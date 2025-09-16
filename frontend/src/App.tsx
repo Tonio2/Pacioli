@@ -3,7 +3,7 @@ import { AppProvider, useApp } from './context/AppContext'
 import { useQuery } from '@tanstack/react-query'
 import { api } from './api/client'
 
-import logo from '../public/logo-compta.svg'
+import logo from '../public/logo-pacioli.svg'
 
 
 function Navbar() {
@@ -18,9 +18,9 @@ function Navbar() {
     })
 
     return (
-        <div className="flex gap-4 p-4 items-center border-b flex-wrap">
-            <div className="text-xl font-bold">Compta MVP</div>
-            <img src={logo} alt="Logo compta" className="w-6 h-6" />
+        <div className="flex gap-4 px-4 py-2 items-center border-b flex-wrap">
+            <img src={logo} alt="Logo compta" className="w-18 h-18" />
+            <div className="text-xl font-bold">Pacioli</div>
             <Link to="/balance" className="underline">Balance</Link>
             <Link to="/entries" className="underline">Écritures</Link>
             <Link to="/piece/new" className='underline'>Saisie</Link>
