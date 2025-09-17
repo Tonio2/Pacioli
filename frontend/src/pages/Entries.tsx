@@ -20,6 +20,11 @@ export default function Entries() {
     const [sp, setSp] = useSearchParams()
     const params = Object.fromEntries(sp.entries())
 
+    const FILTER_KEYS = useMemo(
+        () => ['journal', 'piece_ref', 'compte', 'min_date', 'max_date', 'min_amt', 'max_amt', 'search', 'sort'],
+        []
+    )
+
     // --- filtres contrôlés ---
     const [journal, setJournal] = useState<string>(params.journal ?? '')
     const [pieceRef, setPieceRef] = useState<string>(params.piece_ref ?? '')
@@ -74,6 +79,16 @@ export default function Entries() {
         sort: dSort,
         page_size: pageSize,
     }), [exerciceId, dJournal, dPieceRef, dCompte, dMinDate, dMaxDate, dMinAmt, dMaxAmt, dSearch, dSort])
+
+    const ceSearch = useMemo(() => {
+        const next = new URLSearchParams()
+        const c = sp.get('client')
+        const e = sp.get('exercice')
+        if (c) next.set('client', c)
+        if (e) next.set('exercice', e)
+        const s = next.toString()
+        return s ? `?${s}` : ''
+    }, [sp])
 
 
     // infini: after token
@@ -145,7 +160,14 @@ export default function Entries() {
         ch.accessor('jnl', { header: () => mkSortableHeader('Jnl', 'jnl') }),
         ch.accessor('piece_ref', {
             header: () => mkSortableHeader('Pièce', 'piece_ref'),
-            cell: i => <Link className="underline" to={`/piece/${i.row.original.jnl}/${i.row.original.piece_ref}`}>{i.getValue<string>()}</Link>
+            cell: i => (
+                <Link
+                    className="underline"
+                    to={{ pathname: `/piece/${i.row.original.jnl}/${i.row.original.piece_ref}`, search: ceSearch }}
+                >
+                    {i.getValue<string>()}
+                </Link>
+            )
         }),
         ch.accessor('accnum', { header: () => mkSortableHeader('Compte', 'accnum') }),
         ch.accessor('lib', { header: 'Libellé' }),
@@ -163,7 +185,13 @@ export default function Entries() {
     }, [queryParams])
 
     useEffect(() => {
-        const next = new URLSearchParams()
+        // On part des params courants (pour garder client/exercice)
+        const next = new URLSearchParams(sp)
+
+        // On supprime d'abord toutes les anciennes clés de filtres Entries
+        FILTER_KEYS.forEach(k => next.delete(k))
+
+        // Puis on remet uniquement les filtres actifs (clean)
         if (dJournal) next.set('journal', dJournal)
         if (dPieceRef) next.set('piece_ref', dPieceRef)
         if (dCompte) next.set('compte', dCompte)
@@ -173,8 +201,12 @@ export default function Entries() {
         if (dMaxAmt) next.set('max_amt', dMaxAmt)
         if (dSearch) next.set('search', dSearch)
         next.set('sort', dSort)
+
         setSp(next, { replace: true })
-    }, [dJournal, dPieceRef, dCompte, dMinDate, dMaxDate, dMinAmt, dMaxAmt, dSearch, dSort, setSp])
+    }, [
+        dJournal, dPieceRef, dCompte, dMinDate, dMaxDate, dMinAmt, dMaxAmt, dSearch, dSort,
+        setSp, sp, FILTER_KEYS
+    ])
 
 
     const COLS = useMemo(
@@ -278,7 +310,15 @@ export default function Entries() {
                                             <td className="border px-2 py-1">{row.date}</td>
                                             <td className="border px-2 py-1">{row.jnl}</td>
                                             <td className="border px-2 py-1">
-                                                <Link className="underline" to={`/piece/${row.jnl}/${row.piece_ref}`}>{row.piece_ref}</Link>
+                                                <Link
+                                                    className="underline"
+                                                    to={{
+                                                        pathname: `/piece/${encodeURIComponent(row.jnl)}/${encodeURIComponent(row.piece_ref)}`,
+                                                        search: ceSearch, // <-- préserve client/exercice
+                                                    }}
+                                                >
+                                                    {row.piece_ref}
+                                                </Link>
                                             </td>
                                             <td className="border px-2 py-1">{row.accnum}</td>
                                             <td className="border px-2 py-1">{row.lib}</td>

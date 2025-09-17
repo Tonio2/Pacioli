@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useApp } from '../context/AppContext'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { fmtCents } from '../modules/utils/amount'
 
 // Types côté front
@@ -23,6 +23,7 @@ interface CentralisateurResp {
 
 export default function ControlsPage() {
     const { clientId, exerciceId } = useApp()
+    const [sp] = useSearchParams()
     const qc = useQueryClient()
     const [busyKey, setBusyKey] = useState<string | null>(null) // anti double-clic: `${month}|${jnl}`
 
@@ -32,6 +33,19 @@ export default function ControlsPage() {
         enabled: !!clientId && !!exerciceId,
         staleTime: 30_000,
     })
+
+    const makeEntriesSearch = useCallback((jnl: string, firstDay: string, lastDay: string) => {
+        const next = new URLSearchParams();
+        const c = sp.get('client');
+        const e = sp.get('exercice');
+        if (c) next.set('client', c);
+        if (e) next.set('exercice', e);
+        next.set('journal', jnl);
+        next.set('min_date', firstDay);
+        next.set('max_date', lastDay);
+        next.set('sort', 'date,id');
+        return `?${next.toString()}`;
+    }, [sp]);
 
     const months = data?.months ?? []
 
@@ -106,7 +120,12 @@ export default function ControlsPage() {
                             {rows.map((r) => (
                                 <tr key={`${month}:${r.jnl}`} className="odd:bg-white even:bg-gray-50">
                                     <td className="border px-3 py-2">
-                                        <Link className="text-blue-600 hover:underline" to={`/entries?journal=${encodeURIComponent(r.jnl)}&min_date=${encodeURIComponent(firstDayOfMonth(month))}&max_date=${encodeURIComponent(lastDayOfMonth(month))}`}>
+                                        <Link
+                                            className="text-blue-600 hover:underline"
+                                            to={{
+                                                pathname: '/entries',
+                                                search: makeEntriesSearch(r.jnl, firstDayOfMonth(month), lastDayOfMonth(month))
+                                            }}>
                                             {r.jnl}
                                         </Link>
                                     </td>

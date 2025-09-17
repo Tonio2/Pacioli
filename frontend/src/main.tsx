@@ -20,22 +20,25 @@ const qc = new QueryClient()
 
 const router = createBrowserRouter([
     {
-        path: '/', element: <App />, children: [
-            { path: '/balance', element: <Balance /> },
-            { path: '/entries', element: <Entries /> },
-            { path: '/piece/new', element: <NewPiecePage /> },
-            { path: '/piece/:jnl/:piece_ref', element: <PiecePage /> },
-            { path: '/settings/clients', element: <Clients /> },
-            { path: '/settings/exercices', element: <Exercices /> },
-            { path: '/import', element: <ImportPage /> },
-            { path: '/history', element: <HistoryPage /> },
-            { path: '/controls', element: <ControlsPage /> },
-            { path: '/fec', element: <FecPage /> },
-            { path: '/chart', element: <ChartPage /> },
-            { index: true, element: <Balance /> },
+        path: '/',
+        element: <App />,
+        children: [
+            { path: '/balance', element: <Balance />, handle: { title: 'Balance' } },
+            { path: '/entries', element: <Entries />, handle: { title: 'Écritures' } },
+            { path: '/piece/new', element: <NewPiecePage />, handle: { title: 'Nouvelle pièce' } },
+            { path: '/piece/:jnl/:piece_ref', element: <PiecePage />, handle: { title: 'Pièce' } },
+            { path: '/settings/clients', element: <Clients />, handle: { title: 'Clients' } },
+            { path: '/settings/exercices', element: <Exercices />, handle: { title: 'Exercices' } },
+            { path: '/import', element: <ImportPage />, handle: { title: 'Import' } },
+            { path: '/history', element: <HistoryPage />, handle: { title: 'Historique' } },
+            { path: '/controls', element: <ControlsPage />, handle: { title: 'Journal centralisateur' } },
+            { path: '/fec', element: <FecPage />, handle: { title: 'FEC' } },
+            { path: '/chart', element: <ChartPage />, handle: { title: 'Plan comptable' } },
+            { index: true, element: <Balance />, handle: { title: 'Balance' } },
         ]
     }
 ])
+
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
