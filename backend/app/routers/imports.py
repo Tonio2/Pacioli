@@ -51,16 +51,17 @@ async def import_csv(
     if not text.strip():
         raise HTTPException(400, "Fichier vide")
 
-    sample = text[:4096]
+    sample = text.splitlines()[0]
     try:
         dialect = csv.Sniffer().sniff(sample)
     except Exception:
-        class _Semi(csv.excel): pass
-        _Semi.delimiter = ';'
-        dialect = _Semi
+        dialect = csv.excel
+        dialect.delimiter = "\t"  # par défaut FR
     reader = csv.DictReader(io.StringIO(text), dialect=dialect)
     reader.fieldnames = [(h or "").strip() for h in (reader.fieldnames or [])]
 
+    print(reader.fieldnames)
+    print([dialect.delimiter])
     required = {"jnl", "accnum", "acclib", "date", "lib", "pieceRef", "debit", "credit", "pieceDate", "validDate", "montant", "iDevise"}
     missing = required - set(reader.fieldnames)
     if missing:
