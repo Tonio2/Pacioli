@@ -1,4 +1,5 @@
 from decimal import Decimal
+from pathlib import Path
 from typing import Optional
 
 
@@ -28,3 +29,6 @@ def fmt_cents_fr(cents: Optional[int], with_symbol: bool = True) -> str:
         # espace insécable avant le symbole (typo FR)
         s = f"{s}{NBSP}€"
     return s
+
+BASE_DIR = Path(__file__).resolve().parents[2]  # <- goes up to project root
+FS_ROOT = BASE_DIR / "fs"

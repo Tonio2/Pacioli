@@ -23,23 +23,8 @@ export default function Balance() {
         if (!clientId || !exerciceId) return
         const res = await api.get('/api/balance/export', {
             params: { client_id: clientId, exercice_id: exerciceId },
-            responseType: 'blob',
         })
-        const blob = new Blob([res.data], { type: 'text/plain;charset=utf-8' })
-
-        // Essaie de récupérer le nom de fichier depuis le header
-        const cd = (res.headers['content-disposition'] || '') as string
-        const m = cd.match(/filename="([^"]+)"/i)
-        const filename = m?.[1] ?? `balance_${clientId}_${exerciceId}.txt`
-
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = filename
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-        URL.revokeObjectURL(url)
+        alert(`Fichier enregistré: ${res.data.saved_to}`)
     }, [clientId, exerciceId])
 
     const rows: Row[] = data?.rows ?? []

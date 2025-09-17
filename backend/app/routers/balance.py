@@ -1,12 +1,11 @@
-from decimal import Decimal
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 
-from ..helpers import fmt_cents_fec
+from ..helpers import FS_ROOT, fmt_cents_fec
 from ..schemas import BalanceResponse
 from ..database import get_db
-from ..models import Entry, Account
+from ..models import Client, Entry, Account, Exercice
 
 router = APIRouter(prefix="/api/balance", tags=["balance"])
 
@@ -101,8 +100,29 @@ def export_balance_txt(
         )
 
     content = "\n".join(lines) + ("\n" if lines else "")
-    headers = {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Content-Disposition": f'attachment; filename="balance.csv"',
-    }
-    return Response(content=content, media_type="text/plain", headers=headers)
+
+    exo = db.execute(
+        select(Exercice.id, Exercice.label, Exercice.client_id).where(Exercice.id == exercice_id)
+    ).one()
+    client_name = db.execute(
+        select(Client.name).where(Client.id == exo.client_id)
+    ).scalar_one()
+
+
+
+    folder = FS_ROOT / f"{client_name}_{exo.label}" / "output_pacioli"
+    print(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+
+    file_path = folder / "balance.csv"
+    file_path.write_text(content, encoding="utf-8")
+
+    return {"saved_to": str(file_path)}
+
+    # default: stream for browser download
+    # download_filename = "balance.csv"
+    # headers = {
+    #     "Content-Type": "text/plain; charset=utf-8",
+    #     "Content-Disposition": f'attachment; filename="{download_filename}"',
+    # }
+    # return Response(content=content, media_type="text/plain", headers=headers)
