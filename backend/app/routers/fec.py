@@ -6,9 +6,9 @@ from datetime import date
 import io, zipfile, re
 from collections import defaultdict
 
-from ..helpers import fmt_cents_fec
+from ..helpers import FS_ROOT, fmt_cents_fec
 from ..database import get_db
-from ..models import Entry, Account, Journal, Exercice
+from ..models import Client, Entry, Account, Journal, Exercice
 from ..crud import get_exercice
 
 router = APIRouter(prefix="/api", tags=["fec"])
@@ -52,7 +52,7 @@ def _is_eur(dev: str | None) -> bool:
 _accnum_ok = re.compile(r"^\d{3}")
 
 # --------- builder principal ----------
-def _build_fec_zip(db: Session, exercice_id: int) -> bytes:
+def _build_fec_zip(db: Session, exercice_id: int) -> tuple[bytes, bytes]:
     ex: Exercice = get_exercice(db, exercice_id)
     client_id = ex.client_id
 
@@ -237,7 +237,6 @@ def _build_fec_zip(db: Session, exercice_id: int) -> bytes:
     records.sort(key=lambda r: (int(r["EcritureNum"]), r["JournalCode"], r["CompteNum"]))
 
     # 4) Génération du fichier FEC en mémoire
-    fec_name = f"SIRENFEC{ex.date_end.strftime('%Y%m%d')}"
     fec_io = io.StringIO()
     fec_io.write(PIPE.join(FEC_FIELDS) + LINESEP)
     for rec in records:
@@ -259,7 +258,6 @@ def _build_fec_zip(db: Session, exercice_id: int) -> bytes:
     desc_io.write("- EcritureDate dans l’exercice ; PieceDate/ValidDate peuvent être hors exercice.\n")
     desc_io.write("- Montantdevise/Idevise uniquement si devise ≠ EUR, sinon à blanc.\n")
     desc_io.write("- CompteNum: au moins 3 premiers caractères numériques (PCG).\n")
-    desc_io.write("- Sanitization: pas de '|' ni retours chariot dans les champs texte.\n")
     desc_io.write("\nAvertissements:\n")
     if warnings:
         for w in warnings:
@@ -268,24 +266,31 @@ def _build_fec_zip(db: Session, exercice_id: int) -> bytes:
         desc_io.write("- Aucun avertissement.\n")
     desc_data = desc_io.getvalue().encode("utf-8")
 
-    # 6) ZIP
-    zbuf = io.BytesIO()
-    with zipfile.ZipFile(zbuf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(f"{fec_name}", fec_data)
-        zf.writestr(f"{fec_name}_description.txt", desc_data)
-    return zbuf.getvalue()
+    return fec_data, desc_data
 
 @router.get("/exercices/{exercice_id}/fec", summary="Export FEC (ZIP: FEC + description)")
 def export_fec(exercice_id: int, db: Session = Depends(get_db)):
     try:
-        data = _build_fec_zip(db, exercice_id)
+        fec_data, desc_data = _build_fec_zip(db, exercice_id)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(500, f"Erreur export FEC: {e}")
+
     ex = get_exercice(db, exercice_id)
-    filename = f"SIRENFEC{ex.date_end.strftime('%Y%m%d')}.zip"
-    headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"'
-    }
-    return Response(content=data, media_type="application/zip", headers=headers)
+    client_name = db.execute(
+        select(Client.name).where(Client.id == ex.client_id)
+    ).scalar_one()
+    fecname = f"SIRENFEC{ex.date_end.strftime('%Y%m%d')}"
+
+    folder = FS_ROOT / f"{client_name}_{ex.label}" / "output_pacioli"
+    folder.mkdir(parents=True, exist_ok=True)
+
+    fec_path = folder / f"{fecname}.txt"
+    desc_path = folder / f"{fecname}_description.txt"
+
+
+    fec_path.write_bytes(fec_data)
+    desc_path.write_bytes(desc_data)
+
+    return {"saved_to": [str(fec_path), str(desc_path)]}

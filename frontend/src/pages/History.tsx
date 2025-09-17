@@ -28,11 +28,12 @@ export default function HistoryPage() {
         onSuccess: () => qc.invalidateQueries({ queryKey: ['history'] }),
     })
 
-    const exportTxt = () => {
+    const exportTxt = async () => {
         if (!clientId || !exerciceId) return
-        const url = `/api/history/export?client_id=${clientId}&exercice_id=${exerciceId}&order=${order}`
-        // ouvre le téléchargement
-        window.open(url, '_blank')
+        const res = await api.get('/api/history/export', {
+            params: { client_id: clientId, exercice_id: exerciceId },
+        })
+        alert(`Fichier enregistré: ${res.data.saved_to}`)
     }
 
     const rows: Row[] = historyQ.data?.rows ?? []

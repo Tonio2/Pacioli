@@ -111,7 +111,6 @@ def export_balance_txt(
 
 
     folder = FS_ROOT / f"{client_name}_{exo.label}" / "output_pacioli"
-    print(folder)
     folder.mkdir(parents=True, exist_ok=True)
 
     file_path = folder / "balance.csv"

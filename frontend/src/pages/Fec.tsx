@@ -8,20 +8,12 @@ export default function FecPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const extractFilename = (cd: string | null): string => {
-    if (!cd) return 'fec.zip'
-    // Content-Disposition: attachment; filename="SIRENFEC20241231.zip"
-    const match = /filename\*?=(?:UTF-8''|")?([^\";]+)"?/.exec(cd)
-    return match ? decodeURIComponent(match[1]) : 'fec.zip'
-  }
-
   const downloadFec = async () => {
     if (!exerciceId) return
     setLoading(true)
     setError(null)
     try {
       const res = await api.get(`/api/exercices/${exerciceId}/fec`, {
-        responseType: 'blob', // on veut un ZIP
         validateStatus: () => true, // on gère nous-mêmes les erreurs HTTP
       })
 
@@ -42,16 +34,7 @@ export default function FecPage() {
         return
       }
 
-      const blob = res.data as Blob
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      const filename = extractFilename(res.headers['content-disposition'] || null)
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      window.URL.revokeObjectURL(url)
+      alert(`Fichier enregistré: ${res.data.saved_to}`)
     } catch (e: any) {
       setError(e?.message || 'Erreur inconnue lors du téléchargement du FEC')
     } finally {
