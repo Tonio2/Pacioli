@@ -181,3 +181,20 @@ class PageInfo(BaseModel):
 class EntriesPage(BaseModel):
     rows: List[EntryOut]
     page_info: PageInfo
+
+
+class ANRequest(BaseModel):
+    source_exercice_id: int
+    target_exercice_id: int
+    journal: str
+    overwrite: bool = False
+
+class ANCreatedInfo(BaseModel):
+    piece_ref: str
+    lines: int
+    total_debit_minor: int
+    total_credit_minor: int
+    result_account: str | None = None
+
+class ANResponse(BaseModel):
+    created: ANCreatedInfo
