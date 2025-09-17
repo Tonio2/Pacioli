@@ -25,7 +25,7 @@ function Navbar() {
             <Link to="/entries" className="underline">Écritures</Link>
             <Link to="/piece/new" className='underline'>Saisie</Link>
             <Link to="/import" className="underline">Import</Link>
-            <Link to="/controls" className="underline">Contrôles</Link>
+            <Link to="/controls" className="underline">Journal centralisateur</Link>
             <Link to="/history" className="underline">Historique</Link>
             <Link to="/fec" className="underline">FEC</Link>
             <Link to="/chart" className="underline">Plan comptable</Link>
