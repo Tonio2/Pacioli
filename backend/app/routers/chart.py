@@ -40,7 +40,7 @@ def update_journal(id: int, jnl_lib: str = Query(...), db: Session = Depends(get
 
 @router.get("/export/accounts")
 def export_accounts(client_id: int = Query(...), db: Session = Depends(get_db)):
-    q = select(Account).where(Account.client_id == client_id)
+    q = select(Account).where(Account.client_id == client_id).order_by(Account.accnum.asc())
     rows = db.execute(q).scalars().all()
     data = {r.accnum: r.acclib for r in rows}
     content = json.dumps(data, ensure_ascii=False, indent=2)
