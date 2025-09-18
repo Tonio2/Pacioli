@@ -21,7 +21,7 @@ export default function Entries() {
     const params = Object.fromEntries(sp.entries())
 
     const FILTER_KEYS = useMemo(
-        () => ['journal', 'piece_ref', 'compte', 'min_date', 'max_date', 'min_amt', 'max_amt', 'search', 'sort'],
+        () => ['journal', 'piece_ref', 'compte', 'min_date', 'max_date', 'amount_like', 'search', 'sort'],
         []
     )
 
@@ -31,8 +31,7 @@ export default function Entries() {
     const [compte, setCompte] = useState<string>(params.compte ?? '')
     const [minDate, setMinDate] = useState<string>(params.min_date ?? '')
     const [maxDate, setMaxDate] = useState<string>(params.max_date ?? '')
-    const [minAmt, setMinAmt] = useState<string>(params.min_amt ?? '')
-    const [maxAmt, setMaxAmt] = useState<string>(params.max_amt ?? '')
+    const [amountLike, setAmountLike] = useState<string>(params.amount_like ?? '')
     const [search, setSearch] = useState<string>(params.search ?? '')
     const [sort, setSort] = useState<string>(params.sort ?? 'date,id')
 
@@ -41,8 +40,7 @@ export default function Entries() {
     const dCompte = useDebounced(compte)
     const dMinDate = useDebounced(minDate)
     const dMaxDate = useDebounced(maxDate)
-    const dMinAmt = useDebounced(minAmt)
-    const dMaxAmt = useDebounced(maxAmt)
+    const dAmountLike = useDebounced(amountLike)
     const dSearch = useDebounced(search)
     const dSort = useDebounced(sort, 0) // pas besoin ici, mais OK
 
@@ -73,12 +71,11 @@ export default function Entries() {
         compte: dCompte || undefined,
         min_date: dMinDate || undefined,
         max_date: dMaxDate || undefined,
-        min_amt: dMinAmt ? Number(dMinAmt) : undefined,
-        max_amt: dMaxAmt ? Number(dMaxAmt) : undefined,
+        amount_like: dAmountLike || undefined,
         search: dSearch || undefined,
         sort: dSort,
         page_size: pageSize,
-    }), [exerciceId, dJournal, dPieceRef, dCompte, dMinDate, dMaxDate, dMinAmt, dMaxAmt, dSearch, dSort])
+    }), [exerciceId, dJournal, dPieceRef, dCompte, dMinDate, dMaxDate, dAmountLike, dSearch, dSort])
 
     const ceSearch = useMemo(() => {
         const next = new URLSearchParams()
@@ -171,8 +168,8 @@ export default function Entries() {
         }),
         ch.accessor('accnum', { header: () => mkSortableHeader('Compte', 'accnum') }),
         ch.accessor('lib', { header: 'Libellé' }),
-        ch.accessor('debit_minor', { header: () => mkSortableHeader('Débit', 'debit_minor') }),
-        ch.accessor('credit_minor', { header: () => mkSortableHeader('Crédit', 'credit_minor') }),
+        ch.accessor('debit_minor', { header: () => mkSortableHeader('Débit', 'debit') }),
+        ch.accessor('credit_minor', { header: () => mkSortableHeader('Crédit', 'credit') }),
     ]
 
     // Export CSV
@@ -197,14 +194,13 @@ export default function Entries() {
         if (dCompte) next.set('compte', dCompte)
         if (dMinDate) next.set('min_date', dMinDate)
         if (dMaxDate) next.set('max_date', dMaxDate)
-        if (dMinAmt) next.set('min_amt', dMinAmt)
-        if (dMaxAmt) next.set('max_amt', dMaxAmt)
+        if (dAmountLike) next.set('amount_like', dAmountLike)
         if (dSearch) next.set('search', dSearch)
         next.set('sort', dSort)
 
         setSp(next, { replace: true })
     }, [
-        dJournal, dPieceRef, dCompte, dMinDate, dMaxDate, dMinAmt, dMaxAmt, dSearch, dSort,
+        dJournal, dPieceRef, dCompte, dMinDate, dMaxDate, dAmountLike, dSearch, dSort,
         setSp, sp, FILTER_KEYS
     ])
 
@@ -253,15 +249,9 @@ export default function Entries() {
                         <input type="date" value={maxDate} onChange={e => setMaxDate(e.target.value)} className="border px-2 py-1 w-full" />
                     </div>
                 </div>
-                <div className="flex gap-2">
-                    <div className="flex-1">
-                        <label className="text-xs">Min Δ</label>
-                        <input value={minAmt} onChange={e => setMinAmt(e.target.value)} className="border px-2 py-1 w-full" placeholder="0.00" />
-                    </div>
-                    <div className="flex-1">
-                        <label className="text-xs">Max Δ</label>
-                        <input value={maxAmt} onChange={e => setMaxAmt(e.target.value)} className="border px-2 py-1 w-full" placeholder="0.00" />
-                    </div>
+                <div>
+                    <label className="text-xs">Montant</label>
+                    <input value={amountLike} onChange={e => setAmountLike(e.target.value)} className="border px-2 py-1 w-full" placeholder="0.00" />
                 </div>
                 <div>
                     <label className="text-xs">Recherche libellé</label>

@@ -1,6 +1,7 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
-from sqlalchemy import select, and_, or_
+from sqlalchemy import String, cast, func, literal, select, and_, or_
 from datetime import date
 from typing import Optional, Tuple
 import base64, json, csv, io
@@ -29,8 +30,7 @@ def _filters_signature(
     compte: Optional[str],
     min_date: Optional[str],
     max_date: Optional[str],
-    min_amt: Optional[int],
-    max_amt: Optional[int],
+    amount_like: Optional[str],
     search: Optional[str],
 ) -> dict:
     # Normaliser pour comparaison stricte
@@ -41,8 +41,7 @@ def _filters_signature(
         "compte": compte or None,
         "min_date": min_date or None,
         "max_date": max_date or None,
-        "min_amt": min_amt or None,
-        "max_amt": max_amt or None,
+        "amount_like": amount_like or None,
         "search": (search or None),
     }
 
@@ -94,26 +93,52 @@ def _cursor_predicate(primary_col, desc: bool, after_cursor: Optional[dict], bef
         return or_(op_main, op_eq)
     return None
 
-def _apply_filters(q, exercice_id, journal, piece_ref, compte, min_date, max_date, min_amt_minor, max_amt_minor, search, join_account: bool):
+def _sanitize_amount_like(s: str) -> str:
+    # enlève uniquement les espaces (on garde la virgule)
+    return (s or "").replace(" ", "")
+
+def _formatted_delta_expr():
+    """
+    Retourne une expression SQL (SQLite-compatible) qui produit une chaîne
+    'euros,cents' à partir de ABS(debit_minor - credit_minor) (en cents).
+    Ex: 735600 -> '7356,00', 5 -> '0,05', 3550 -> '35,50'
+    """
+    delta = func.abs(Entry.debit_minor - Entry.credit_minor)
+
+    # Assure au moins 2 digits pour pouvoir prendre les cents
+    # printf('%02d', N) existe en SQLite
+    digits2 = func.printf('%02d', delta)  # '05', '3550', '735600', etc.
+
+    # euros = tout sauf les 2 derniers digits ; si vide -> '0'
+    euros_raw = func.substr(digits2, 1, func.length(digits2) - 2)
+    euros = func.coalesce(func.nullif(euros_raw, ''), literal('0'))
+
+    # cents = 2 derniers digits
+    cents = func.substr(digits2, -2, 2)
+
+    # euros || ',' || cents
+    return func.concat(euros, literal(','), cents)
+
+def _apply_filters(q, exercice_id, journal, piece_ref, compte, min_date, max_date, amount_like, search, join_account: bool):
     q = q.where(Entry.exercice_id == exercice_id)
     if journal:
         q = q.where(Entry.jnl == journal)
     if piece_ref:
-        q = q.where(Entry.piece_ref == piece_ref)
+        q = q.where(Entry.piece_ref.ilike(f"%{piece_ref}%"))
     if min_date:
         q = q.where(Entry.date >= _parse_date(min_date))
     if max_date:
         q = q.where(Entry.date <= _parse_date(max_date))
-    if min_amt_minor is not None:
-        q = q.where((Entry.debit_minor - Entry.credit_minor) >= min_amt_minor)
-    if max_amt_minor is not None:
-        q = q.where((Entry.debit_minor - Entry.credit_minor) <= max_amt_minor)
+    if amount_like:
+        needle = _sanitize_amount_like(amount_like)  # retire juste les espaces
+        if needle:  # garde virgule si présente
+            formatted = _formatted_delta_expr()
+            q = q.where(formatted.ilike(f"%{needle}%"))
     if search:
         like = f"%{search}%"
         q = q.where(Entry.lib.ilike(like))
     if compte:
-        # on a déjà joint Account si join_account True
-        q = q.where(Account.accnum == compte)
+        q = q.where(Account.accnum.ilike(f"%{compte}%"))
     return q
 
 @router.get("", response_model=EntriesPage)
@@ -124,8 +149,7 @@ def list_entries_keyset(
     piece_ref: Optional[str] = None,
     min_date: Optional[str] = None,
     max_date: Optional[str] = None,
-    min_amt_minor: Optional[int] = None,
-    max_amt_minor: Optional[int] = None,
+    amount_like: Optional[str] = None,
     search: Optional[str] = None,
     sort: Optional[str] = "date,id",
     page_size: int = Query(100, ge=1, le=500),
@@ -152,12 +176,12 @@ def list_entries_keyset(
         # pour récupérer quand même accnum/acclib sans forcer le JOIN dans SQLite, on joint quand même (léger)
         q = q.join(Account, Account.id == Entry.account_id)
 
-    q = _apply_filters(q, exercice_id, journal, piece_ref, compte, min_date, max_date, min_amt_minor, max_amt_minor, search, join_account)
+    q = _apply_filters(q, exercice_id, journal, piece_ref, compte, min_date, max_date, amount_like, search, join_account)
 
     primary_col = _primary_expr(key)
 
     # Vérifier/valider token si présent
-    filt_sig = _filters_signature(exercice_id, journal, piece_ref, compte, min_date, max_date, min_amt_minor, max_amt_minor, search)
+    filt_sig = _filters_signature(exercice_id, journal, piece_ref, compte, min_date, max_date, amount_like, search)
     after_cursor = before_cursor = None
     if after:
         c = _decode_token(after)
@@ -267,8 +291,7 @@ def export_entries_csv(
     piece_ref: Optional[str] = None,
     min_date: Optional[str] = None,
     max_date: Optional[str] = None,
-    min_amt_minor: Optional[int] = None,
-    max_amt_minor: Optional[int] = None,
+    amount_like: Optional[str] = None,
     search: Optional[str] = None,
     sort: Optional[str] = "date,id",
     db: Session = Depends(get_db),
@@ -293,7 +316,7 @@ def export_entries_csv(
         Entry.i_devise,
     ).join(Account, Account.id == Entry.account_id)
 
-    q = _apply_filters(q, exercice_id, journal, piece_ref, compte, min_date, max_date, min_amt_minor, max_amt_minor, search, True)
+    q = _apply_filters(q, exercice_id, journal, piece_ref, compte, min_date, max_date, amount_like, search, True)
 
     primary_col = _primary_expr(key)
     order_cols = [primary_col.desc() if desc else primary_col.asc(), Entry.id.asc()]
