@@ -5,36 +5,13 @@ from ..database import get_db
 from ..models import Entry, HistoryEvent, Account, JournalSequence
 from ..schemas import PieceCommitRequest, PieceCommitResponse, PieceGetResponse
 from ..validators import ensure_batch_balanced_minor, ensure_dates_in_exercice, check_one_side
-from ..crud import list_unbalanced_pieces, get_exercice, find_or_create_account
+from ..crud import get_next_ref, list_unbalanced_pieces, get_exercice, find_or_create_account
 
 router = APIRouter(prefix="/api", tags=["piece"])
 
 @router.get("/piece/next_ref")
-def get_next_ref(exercice_id: int, journal: str, width: int = 5, db: Session = Depends(get_db)):
-    # 1) Lire le dernier numéro mémorisé
-    seq = db.execute(
-        select(JournalSequence).where(
-            JournalSequence.exercice_id == exercice_id,
-            JournalSequence.jnl == journal
-        )
-    ).scalar_one_or_none()
-    start = (seq.last_number if seq else 0) + 1
-
-    # 2) Trouver le premier suffixe libre à partir de start
-    #    (on vérifie l'existence dans entries)
-    n = start
-    while True:
-        cand = f"{journal}-{n:0{width}d}"
-        exists = db.execute(
-            select(func.count(Entry.id)).where(
-                Entry.exercice_id == exercice_id,
-                Entry.jnl == journal,
-                Entry.piece_ref == cand
-            )
-        ).scalar_one()
-        if exists == 0:
-            return {"next_ref": cand, "next_number": n}
-        n += 1
+def look_next_ref(exercice_id: int, journal: str, width: int = 5, db: Session = Depends(get_db)):
+    return get_next_ref(db, exercice_id, journal)
 
 
 @router.get("/piece", response_model=PieceGetResponse)

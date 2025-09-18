@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func, select
-from .models import Entry, Account, Journal, Exercice
+from .models import Entry, Account, Journal, Exercice, JournalSequence
 
 # Helpers
 
@@ -48,3 +48,29 @@ def get_exercice(db: Session, exercice_id: int) -> Exercice:
     if not ex:
         raise ValueError("Exercice introuvable")
     return ex
+
+def get_next_ref(db: Session, exercice_id: int, journal: str, width: int = 5):
+    # 1) Lire le dernier numéro mémorisé
+    seq = db.execute(
+        select(JournalSequence).where(
+            JournalSequence.exercice_id == exercice_id,
+            JournalSequence.jnl == journal
+        )
+    ).scalar_one_or_none()
+    start = (seq.last_number if seq else 0) + 1
+
+    # 2) Trouver le premier suffixe libre à partir de start
+    #    (on vérifie l'existence dans entries)
+    n = start
+    while True:
+        cand = f"{journal}-{n:0{width}d}"
+        exists = db.execute(
+            select(func.count(Entry.id)).where(
+                Entry.exercice_id == exercice_id,
+                Entry.jnl == journal,
+                Entry.piece_ref == cand
+            )
+        ).scalar_one()
+        if exists == 0:
+            return {"next_ref": cand, "next_number": n}
+        n += 1
