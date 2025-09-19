@@ -103,6 +103,18 @@ export default function Entries() {
 
     const rows: Row[] = (data?.pages ?? []).flatMap(p => p.rows)
 
+    const soldeById = useMemo(() => {
+        const m = new Map<number, number>()
+        let running = 0
+        for (const r of rows) {
+            const d = r.debit_minor ?? 0
+            const c = r.credit_minor ?? 0
+            running += (d - c)
+            m.set(r.id, running)
+        }
+        return m
+    }, [rows])
+
     // Virtualizer
     const parentRef = useRef<HTMLDivElement | null>(null)
     const rowVirtualizer = useVirtualizer({
@@ -134,9 +146,9 @@ export default function Entries() {
 
     // colonnes triables (on délègue au serveur)
     const ch = createColumnHelper<Row>()
-    const mkSortableHeader = (label: string, key: string) => (
+    const mkSortableHeader = (label: string, key: string, alignRight = false) => (
         <button
-            className="underline"
+            className={`underline w-full ${alignRight ? 'text-right' : 'text-left'}`}
             onClick={() => {
                 setSort(prev => {
                     const cur = prev.split(',')[0] || 'date'
@@ -168,8 +180,8 @@ export default function Entries() {
         }),
         ch.accessor('accnum', { header: () => mkSortableHeader('Compte', 'accnum') }),
         ch.accessor('lib', { header: 'Libellé' }),
-        ch.accessor('debit_minor', { header: () => mkSortableHeader('Débit', 'debit') }),
-        ch.accessor('credit_minor', { header: () => mkSortableHeader('Crédit', 'credit') }),
+        ch.accessor('debit_minor', { header: () => mkSortableHeader('Débit', 'debit', true) }),
+        ch.accessor('credit_minor', { header: () => mkSortableHeader('Crédit', 'credit', true) }),
     ]
 
     // Export CSV
@@ -214,6 +226,8 @@ export default function Entries() {
             <col key="lib" />,                             // Libellé (auto)
             <col key="debit" style={{ width: '8rem' }} />,   // Débit
             <col key="credit" style={{ width: '8rem' }} />,   // Crédit
+            <col key="solde" style={{ width: '9rem' }} />,  // Solde (non triable)
+
         ]),
         []
     )
@@ -274,13 +288,15 @@ export default function Entries() {
                                         {flexRender(col.header as any, { column: { columnDef: col } } as any)}
                                     </th>
                                 ))}
+                                {/* Colonne non triable */}
+                                <th className="px-2 py-1 text-right">Solde</th>
                             </tr>
                         </thead>,
 
                         <tbody key="b">
                             {[
                                 ...(paddingTop > 0
-                                    ? [<tr key="pad-top"><td colSpan={columns.length} className="border-t" style={{ height: paddingTop }} /></tr>]
+                                    ? [<tr key="pad-top"><td colSpan={columns.length + 1} className="border-t" style={{ height: paddingTop }} /></tr>]
                                     : []),
 
                                 ...virtualItems.map((vi) => {
@@ -288,7 +304,7 @@ export default function Entries() {
                                     if (isLoader) {
                                         return (
                                             <tr key="loader">
-                                                <td colSpan={columns.length} className="px-2 py-2 text-center border-t">
+                                                <td colSpan={columns.length + 1} className="px-2 py-2 text-center border-t">
                                                     {hasNextPage ? 'Chargement…' : '—'}
                                                 </td>
                                             </tr>
@@ -314,12 +330,15 @@ export default function Entries() {
                                             <td className="border px-2 py-1">{row.lib}</td>
                                             <td className="border px-2 py-1 text-right">{fmtCents(row.debit_minor)}</td>
                                             <td className="border px-2 py-1 text-right">{fmtCents(row.credit_minor)}</td>
+                                            <td className="border px-2 py-1 text-right">
+                                                {fmtCents(soldeById.get(row.id) ?? 0)}
+                                            </td>
                                         </tr>
                                     )
                                 }),
 
                                 ...(paddingBottom > 0
-                                    ? [<tr key="pad-bottom"><td colSpan={columns.length} style={{ height: paddingBottom }} /></tr>]
+                                    ? [<tr key="pad-bottom"><td colSpan={columns.length + 1} style={{ height: paddingBottom }} /></tr>]
                                     : []),
                             ]}
                         </tbody>,
